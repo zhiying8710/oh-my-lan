@@ -183,9 +183,16 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            # macOS：先只 bundle .app，给注入 ATS 留窗口；DMG 之后单独打
-            cd tauri/src-tauri && cargo tauri build \
-              --target ${{ matrix.tauri-target }} --bundles app
+            # macOS universal build 的奇怪行为：cargo-tauri --bundles dmg 完成后会
+            # "Cleaning .../bundle/macos/oh-my-lan.app" 把 .app 当临时产物清掉。
+            # 后续注入 ATS 找不到 .app。
+            #
+            # 解决：先跑 --bundles dmg（产 dmg + 拉 bundle_dmg.sh 助手 + 清 .app），
+            # 再跑 --bundles app（不会触发清理，留下干净 .app 给我们注入）。
+            # 两次 build 都走增量缓存，第二次几乎不耗时。
+            cd tauri/src-tauri
+            cargo tauri build --target ${{ matrix.tauri-target }} --bundles dmg
+            cargo tauri build --target ${{ matrix.tauri-target }} --bundles app
           else
             cd tauri/src-tauri && cargo tauri build \
               --target ${{ matrix.tauri-target }} --bundles ${{ matrix.tauri-bundles }}
@@ -195,41 +202,34 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          # 删 cargo-tauri 自动产的所有 DMG（上一步 --bundles dmg 留下的、未注入 ATS）。
+          # 这样 Collect 阶段才不会把它们和我们手工 repack 的注入版一起收走。
+          find tauri/src-tauri/target -path '*/bundle/dmg/*.dmg' -delete
+          echo "==> cleared cargo-tauri auto DMGs"
+
           for app in $(find tauri/src-tauri/target -name 'oh-my-lan.app' -path '*/bundle/macos/*'); do
             triple=$(echo "$app" | sed -nE 's|.*/target/([^/]+)/release/.*|\1|p')
             [ -z "$triple" ] && triple="universal"
 
-            # 1) 拉 bundle_dmg.sh 助手脚本：tauri-cli 第一次 build dmg 时才会把它写出来。
-            #    必须在注入 ATS 之前跑——因为这次 cargo tauri build 会 rebuild .app
-            #    覆盖 Info.plist，把 ATS 注入冲掉。同时它会顺手生成一份**未注入** ATS 的
-            #    DMG，留在 target/.../bundle/dmg/，必须删掉，否则 Collect 阶段会把它
-            #    和我们手工 repack 的 DMG 一起收进 dist/，用户下载就赌运气。
-            #    历史教训：之前的版本把这一步嵌在 ATS 注入之后，导致 .app 被 rebuild、
-            #    ATS 丢失；且 cargo-tauri 自动产的 DMG (oh-my-lan_0.1.0_universal.dmg)
-            #    被 Collect 收走，用户装上去仍然 ATS 报错。
-            script=$(find tauri/src-tauri/target -name 'bundle_dmg.sh' -path '*/bundle/dmg/*' | head -1)
-            if [[ -z "$script" ]]; then
-              echo "==> 首次：拉 bundle_dmg.sh（会顺便生成一份未注入 DMG，稍后删除）"
-              (cd tauri/src-tauri && cargo tauri build --target ${{ matrix.tauri-target }} --bundles dmg) || true
-              script=$(find tauri/src-tauri/target -name 'bundle_dmg.sh' -path '*/bundle/dmg/*' | head -1)
-            fi
-            # 删除 cargo-tauri 自动产的所有 DMG，只保留我们待会手工 repack 的版本
-            find tauri/src-tauri/target -path '*/bundle/dmg/*.dmg' -delete
-            echo "==> cleared cargo-tauri DMGs"
-
-            # 2) 现在 .app 可能已被 rebuild 覆盖（Info.plist 被还原）——重新注入 ATS
+            # 1) 注入 ATS
             ./tauri/scripts/inject-ats.sh "$app"
 
-            # 验证：注入是否真的生效？没有的话 hard-fail，不让坏 DMG 上 release。
+            # 2) PlistBuddy 验证注入是否真的生效；没有就 hard-fail，不让坏 DMG 上 release
             if ! /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity:NSAllowsArbitraryLoads" \
                  "$app/Contents/Info.plist" 2>/dev/null | grep -q true; then
               echo "##[error]ATS injection 失败：Info.plist 里读不到 NSAllowsArbitraryLoads=true"
               /usr/libexec/PlistBuddy -c "Print" "$app/Contents/Info.plist" || true
               exit 1
             fi
-            echo "==> ATS 验证通过：$app/Contents/Info.plist 含 NSAllowsArbitraryLoads=true"
+            echo "==> ATS 验证通过：$app/Contents/Info.plist"
 
-            # 3) staging dir + bundle_dmg.sh 出唯一一份注入过的 DMG
+            # 3) bundle_dmg.sh 从 staging dir 重打 DMG。bundle_dmg.sh 是 tauri-cli 第一次
+            #    跑 --bundles dmg 时写到 target/.../bundle/dmg/ 的，在前一步已经拉好。
+            script=$(find tauri/src-tauri/target -name 'bundle_dmg.sh' -path '*/bundle/dmg/*' | head -1)
+            if [[ -z "$script" ]]; then
+              echo "##[error]找不到 bundle_dmg.sh——上一步 --bundles dmg 没产出助手脚本"
+              exit 1
+            fi
             stage=$(mktemp -d)
             cp -a "$app" "$stage/"
             out_dir="$(dirname "$(dirname "$app")")/dmg"
@@ -249,7 +249,7 @@ jobs:
             echo "✓ $out_dmg"
           done
 
-          # 兜底：万一上面 find 没匹配到任何 .app（rare 路径变化），fail loud
+          # 兜底：上面 find 没匹配到任何 .app，fail loud
           if ! ls tauri/src-tauri/target/*/release/bundle/dmg/oh-my-lan_${VERSION}_*.dmg 2>/dev/null; then
             echo "##[error]No injected DMG produced; ATS will fail at runtime"
             exit 1
