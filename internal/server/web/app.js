@@ -68,6 +68,7 @@ const els = {
   enrollCard: document.getElementById('enroll-card'),
   daemonCard: document.getElementById('daemon-card'),
   autostartCard: document.getElementById('autostart-card'),
+  localLoadingCard: document.getElementById('local-loading-card'),
   enrollForm: document.getElementById('enroll-form'),
   enrollServerDisplay: document.getElementById('enroll-server-display'),
   enrollNameInput: document.getElementById('enroll-name-input'),
@@ -499,27 +500,30 @@ function setDaemonBadge(running, pid) {
 }
 
 // refreshLocalTab 是「本机」tab 的统一入口：
-//   1) 先判断 state.json 是否存在；不存在 → 显示注册卡片，daemon 控制卡片隐藏
-//   2) 已注册 → 显示 daemon 控制卡片，并刷新 status
+//   1) 立即显示 loading 占位（Windows spawn 子进程慢，没有占位用户感觉白屏）
+//   2) 并发拿三个 IPC：default_client_config_path、daemon_is_enrolled、autostart_status
+//      这三个无依赖关系，可并行；总耗时 ≈ 最慢一个 vs 之前的串行总和
+//   3) 全部回来后再决定显示哪张卡（enroll / daemon + autostart）
 async function refreshLocalTab() {
-  // placeholder 始终同步
-  try {
-    const defCfg = await tauriCmd('default_client_config_path_cmd');
-    if (defCfg) els.ctlConfigInput.placeholder = `留空 → ${defCfg}`;
-  } catch (e) {
-    if (inTauri) console.warn('default_client_config_path_cmd 失败:', e);
-  }
+  showLoadingCard();
 
+  // 三路并发——Promise.allSettled 让任一失败不阻塞另外两个
   const ctlPath = els.ctlPathInput.value.trim();
   const configPath = els.ctlConfigInput.value.trim();
+  const [defCfgRes, enrolledRes] = await Promise.allSettled([
+    tauriCmd('default_client_config_path_cmd'),
+    tauriCmd('daemon_is_enrolled', { ctlPath, configPath }),
+  ]);
 
-  let enrolled = false;
-  try {
-    enrolled = await tauriCmd('daemon_is_enrolled', { ctlPath, configPath });
-  } catch (e) {
-    // 查不出来就保守认为未注册——让用户走一次注册总比卡死好
-    console.warn('daemon_is_enrolled 失败:', e);
-    enrolled = false;
+  if (defCfgRes.status === 'fulfilled' && defCfgRes.value) {
+    els.ctlConfigInput.placeholder = `留空 → ${defCfgRes.value}`;
+  } else if (inTauri && defCfgRes.status === 'rejected') {
+    console.warn('default_client_config_path_cmd 失败:', defCfgRes.reason);
+  }
+
+  const enrolled = enrolledRes.status === 'fulfilled' ? !!enrolledRes.value : false;
+  if (enrolledRes.status === 'rejected') {
+    console.warn('daemon_is_enrolled 失败:', enrolledRes.reason);
   }
 
   if (!enrolled) {
@@ -530,7 +534,15 @@ async function refreshLocalTab() {
   }
 }
 
+function showLoadingCard() {
+  if (els.localLoadingCard) els.localLoadingCard.hidden = false;
+  els.enrollCard.hidden = true;
+  els.daemonCard.hidden = true;
+  if (els.autostartCard) els.autostartCard.hidden = true;
+}
+
 function showEnrollCard() {
+  if (els.localLoadingCard) els.localLoadingCard.hidden = true;
   els.enrollCard.hidden = false;
   els.daemonCard.hidden = true;
   if (els.autostartCard) els.autostartCard.hidden = true;
@@ -541,6 +553,7 @@ function showEnrollCard() {
 }
 
 function showDaemonCard() {
+  if (els.localLoadingCard) els.localLoadingCard.hidden = true;
   els.enrollCard.hidden = true;
   els.daemonCard.hidden = false;
   // 注册之后 autostart 卡片也跟着出现，两张一并可见

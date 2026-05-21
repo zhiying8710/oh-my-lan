@@ -292,9 +292,17 @@ fn autostart_disable() -> Result<(), String> {
     autostart::disable()
 }
 
-/// 通过 `omlctl state exists` 同步判断本机是否已 enroll。
-/// 返回 true → state.json 已存在；false → 未注册（不区分文件缺失 vs 权限等其它错误，
-/// 走"当作未注册"是最稳健的兜底：让用户重新走一次 enroll 流程总好过卡住）。
+/// 判断本机是否已 enroll：state.json 是否存在。
+///
+/// 实现策略 fast → slow：
+///   1) 快路径：直接 stat `<config-parent>/data/state.json`。`ensure_client_config` 写出的
+///      默认 yaml 把 `data_dir` 设到 config 同级 `data/`，覆盖 99% 的自动初始化场景，
+///      < 1ms。Windows 上尤其关键——上一版每次切「本机」tab 都 spawn omlctl 子进程，
+///      光进程创建 + handle 拿取就 100-300ms，UI 卡顿明显。
+///   2) 慢路径：若快路径未命中（用户手动改 yaml 用了别的 data_dir），降级到
+///      `omlctl state exists`，由 omlctl 自己 loadCfg 走精确逻辑。
+///
+/// 任一路径返回 true → 已注册；都失败 → false。
 #[tauri::command]
 fn daemon_is_enrolled(
     ctl_path: Option<String>,
@@ -310,6 +318,15 @@ fn daemon_is_enrolled(
     };
     ensure_client_config(&resolved_cfg)?;
 
+    // 1) 快路径
+    if let Some(parent) = resolved_cfg.parent() {
+        let state_path = parent.join("data").join("state.json");
+        if state_path.exists() {
+            return Ok(true);
+        }
+    }
+
+    // 2) 慢路径兜底：spawn omlctl state exists，让 omlctl 走精确的 cfg 加载逻辑
     let status = std::process::Command::new(&resolved_ctl)
         .args(["--config", &resolved_cfg.to_string_lossy(), "state", "exists"])
         .stdout(std::process::Stdio::null())

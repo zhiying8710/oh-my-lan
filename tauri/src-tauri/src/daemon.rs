@@ -188,11 +188,40 @@ fn pid_alive(pid: u32) -> bool {
     errno == libc::EPERM
 }
 
-#[cfg(not(unix))]
-fn pid_alive(_pid: u32) -> bool {
-    // Windows: 这次先简化为返回 false——pidfile 路径主要用于本机 daemon 探活，
-    // Windows 实测延后；用户开机自启功能在 Windows 上也直接返回 unimplemented。
-    false
+#[cfg(windows)]
+fn pid_alive(pid: u32) -> bool {
+    // OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) + GetExitCodeProcess(STILL_ACTIVE).
+    // 比起 spawn `tasklist /FI "PID eq <pid>"`，少了一个 cmd 弹窗 + 进程创建开销，
+    // 是 Windows 上探活的"教科书"做法。kernel32 是 Tauri 主进程已经隐式链接的核心 DLL，
+    // 这里通过 `#[link(name = "kernel32")]` extern "system" 直接拿到符号，零外部 crate。
+    //
+    // 注意 PROCESS_QUERY_LIMITED_INFORMATION（0x1000）是 Vista+ 引入的"低权限查询"标志，
+    // 比 PROCESS_QUERY_INFORMATION 更可靠地能从普通用户进程查询同用户拥有的目标进程；
+    // 拿不到 handle 时认为进程不存在。
+    use std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+        fn GetExitCodeProcess(handle: *mut c_void, exit_code: *mut u32) -> i32;
+    }
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut exit_code: u32 = 0;
+        let ok = GetExitCodeProcess(handle, &mut exit_code as *mut u32);
+        CloseHandle(handle);
+        ok != 0 && exit_code == STILL_ACTIVE
+    }
 }
 
 /// 向给定 pid 发 SIGTERM，等待 timeout 后若仍存活发 SIGKILL。返回是否成功停止。
@@ -211,9 +240,33 @@ pub fn signal_terminate(pid: u32, timeout: Duration) -> bool {
     !pid_alive(pid)
 }
 
-#[cfg(not(unix))]
-pub fn signal_terminate(_pid: u32, _timeout: Duration) -> bool {
-    false
+#[cfg(windows)]
+pub fn signal_terminate(pid: u32, _timeout: Duration) -> bool {
+    // Windows 没有 SIGTERM 概念，所有"软停"都退化为 TerminateProcess。
+    // 调用方传的 timeout 在 Windows 上不参考——TerminateProcess 是同步的，
+    // 返回时进程已经处于 signaled 状态（exit code 写入但 handle 还没释放）。
+    use std::ffi::c_void;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+        fn TerminateProcess(handle: *mut c_void, exit_code: u32) -> i32;
+    }
+    const PROCESS_TERMINATE: u32 = 0x0001;
+
+    if pid == 0 {
+        return false;
+    }
+    unsafe {
+        let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let ok = TerminateProcess(handle, 1);
+        CloseHandle(handle);
+        ok != 0
+    }
 }
 
 /// 读文件末尾最多 `max_bytes` 字节，按 UTF-8 lossy 解码。

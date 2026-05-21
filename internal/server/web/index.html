@@ -115,6 +115,19 @@
 
     <!-- 本机 daemon 控制面板（仅 Tauri 显示） -->
     <div id="tab-local" class="tab-panel" hidden>
+      <!-- Loading 占位：每次切到「本机」tab 时先显示这个，
+           等 Rust IPC 查 enroll / daemon / autostart 状态全部回来后再渲染真实卡片。
+           Windows 上 spawn omlctl 等子进程会卡 200-500ms，没有这个占位用户会感觉"白屏" -->
+      <div class="card local-card local-loading" id="local-loading-card">
+        <div class="loading-row">
+          <span class="loading-dot"></span>
+          <span class="loading-dot"></span>
+          <span class="loading-dot"></span>
+          <span class="loading-text">读取本机状态…</span>
+        </div>
+        <p class="muted">查询 omlctl 路径、注册状态、daemon 状态、开机自启状态</p>
+      </div>
+
       <!-- 设备注册卡片：state.json 不存在时显示；注册成功后自动隐藏 -->
       <div class="card local-card" id="enroll-card" hidden>
         <h2>注册本机为新设备</h2>

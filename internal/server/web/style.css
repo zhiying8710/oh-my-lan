@@ -121,6 +121,34 @@ button[disabled]:hover {
 .autostart-state-group { display: inline-flex; align-items: center; gap: 8px; }
 .autostart-label { font-weight: 500; color: var(--muted); font-size: 12px; }
 
+/* 本机 tab loading 占位：三个跳动小圆点 + 说明文案。
+   Windows spawn omlctl 子进程 100-300ms 期间用户看到这个，比"白屏 + 突然出现卡片"舒服 */
+.local-loading { text-align: center; }
+.loading-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  color: var(--fg);
+  font-weight: 500;
+}
+.loading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.4;
+  animation: oml-loading-dot 1.2s ease-in-out infinite;
+}
+.loading-dot:nth-child(2) { animation-delay: 0.15s; }
+.loading-dot:nth-child(3) { animation-delay: 0.3s; }
+.loading-text { margin-left: 4px; }
+@keyframes oml-loading-dot {
+  0%, 60%, 100% { opacity: 0.25; transform: scale(1); }
+  30%           { opacity: 0.9;  transform: scale(1.4); }
+}
+
 /* 通用 alert 弹窗：复用 modal 风格，但单按钮居中、文本支持换行 */
 .alert-modal-body { min-width: 320px; max-width: 480px; }
 .alert-title { margin: 0 0 12px 0; font-size: 16px; }
