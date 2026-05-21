@@ -1,0 +1,209 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '版本号（如 v0.1.0），不打 git tag 也能手动跑'
+        required: true
+        default: 'v0.1.0-dev'
+
+permissions:
+  contents: write   # 用来创建 GitHub Release 上传产物
+
+jobs:
+  # ──────────────────────────────────────────────────────
+  # 服务端：linux/amd64 静态二进制 + linux/arm64
+  # ──────────────────────────────────────────────────────
+  server:
+    name: omlserver (${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: Build omlserver
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          go build -ldflags "-X github.com/zhiying8710/oh-my-lan/internal/version.Version=${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}" \
+            -o dist/omlserver-linux-${{ matrix.goarch }} ./cmd/omlserver
+          ( cd dist && tar -czf omlserver-linux-${{ matrix.goarch }}.tar.gz omlserver-linux-${{ matrix.goarch }} )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omlserver-linux-${{ matrix.goarch }}
+          path: dist/omlserver-linux-${{ matrix.goarch }}.tar.gz
+
+  # ──────────────────────────────────────────────────────
+  # 桌面客户端：macOS (universal2) + Windows (x86_64) + Linux AppImage
+  # 关键点：先用 Go 把 omlctl cross-compile 出来作为 sidecar，再 cargo tauri build
+  # ──────────────────────────────────────────────────────
+  desktop:
+    name: Desktop ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macOS (universal)
+            os: macos-latest
+            rust-target: universal-apple-darwin
+            tauri-args: --target universal-apple-darwin --bundles dmg
+            go-targets:
+              - { os: darwin, arch: arm64, triple: aarch64-apple-darwin }
+              - { os: darwin, arch: amd64, triple: x86_64-apple-darwin }
+          - label: Windows (x86_64)
+            os: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            tauri-args: --target x86_64-pc-windows-msvc --bundles nsis,msi
+            go-targets:
+              - { os: windows, arch: amd64, triple: x86_64-pc-windows-msvc }
+          - label: Linux (x86_64)
+            os: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            tauri-args: --target x86_64-unknown-linux-gnu --bundles appimage,deb
+            go-targets:
+              - { os: linux, arch: amd64, triple: x86_64-unknown-linux-gnu }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go toolchain
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      # Rust toolchain
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      # Linux 系统依赖（Tauri 2.x AppImage 需要 webkit2gtk-4.1）
+      - name: Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      # 构建 sidecar omlctl（每个目标 triple 一份）
+      - name: Build omlctl sidecars
+        shell: bash
+        run: |
+          mkdir -p tauri/src-tauri/binaries
+          # 用 JSON 的方式喂 matrix 给 shell；这里手动跳过 PowerShell 兼容性
+          cat <<'EOF' > /tmp/targets.json
+          ${{ toJson(matrix.go-targets) }}
+          EOF
+          python - <<'PY'
+          import json, os, subprocess, sys
+          with open('/tmp/targets.json') as f:
+              targets = json.load(f)
+          for t in targets:
+              env = os.environ.copy()
+              env['GOOS'] = t['os']
+              env['GOARCH'] = t['arch']
+              env['CGO_ENABLED'] = '0'
+              ext = '.exe' if t['os'] == 'windows' else ''
+              out = f"tauri/src-tauri/binaries/omlctl-{t['triple']}{ext}"
+              print(f"==> {out}")
+              subprocess.check_call(['go', 'build', '-o', out, './cmd/omlctl'], env=env)
+          PY
+
+      # cargo tauri build
+      - name: cargo install tauri-cli (cached)
+        run: cargo install --locked tauri-cli --version '^2' || true
+
+      - name: Sync web assets
+        shell: bash
+        run: |
+          mkdir -p tauri/dist
+          cp internal/server/web/index.html internal/server/web/style.css internal/server/web/app.js \
+             internal/server/web/favicon.svg internal/server/web/favicon-32.png tauri/dist/
+
+      - name: cargo tauri build (.app on macOS, full on others)
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            # 先只 bundle .app，留出注入 ATS 的窗口
+            cd tauri/src-tauri && cargo tauri build --bundles app ${{ matrix.tauri-args }}
+          else
+            cd tauri/src-tauri && cargo tauri build ${{ matrix.tauri-args }}
+          fi
+
+      - name: Inject ATS exception + repack DMG (macOS only)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # 找出所有 build 出来的 .app（universal2 build 也只一个）
+          for app in $(find tauri/src-tauri/target -name 'oh-my-lan.app' -path '*/bundle/macos/*'); do
+            ./tauri/scripts/inject-ats.sh "$app"
+            stage=$(mktemp -d)
+            cp -a "$app" "$stage/"
+            triple=$(echo "$app" | sed -nE 's|.*/target/([^/]+)/release/.*|\1|p')
+            [ -z "$triple" ] && triple="universal"
+            out_dir="$(dirname "$(dirname "$app")")/dmg"
+            mkdir -p "$out_dir"
+            out_dmg="$out_dir/oh-my-lan_0.1.0_${triple}.dmg"
+            rm -f "$out_dmg"
+            # bundle_dmg.sh 是 Tauri 内置的，build 后留在 dmg 目录
+            script=$(find tauri/src-tauri/target -name 'bundle_dmg.sh' -path '*/bundle/dmg/*' | head -1)
+            bash "$script" \
+              --volname "oh-my-lan" \
+              --icon "oh-my-lan.app" 180 170 \
+              --app-drop-link 480 170 \
+              --window-pos 200 120 \
+              --window-size 660 400 \
+              --hide-extension "oh-my-lan.app" \
+              --icon-size 128 \
+              "$out_dmg" "$stage"
+            rm -rf "$stage"
+            echo "✓ $out_dmg"
+          done
+
+      # 收集产物
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir -p dist
+          # Tauri 把 bundle 放到 target/<triple>/release/bundle/<format>/
+          find tauri/src-tauri/target -path '*/release/bundle/*' \
+            \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \
+               -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp -v {} dist/ \;
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ runner.os }}
+          path: dist/*
+
+  # ──────────────────────────────────────────────────────
+  # 汇总：把所有产物附到 GitHub Release
+  # ──────────────────────────────────────────────────────
+  release:
+    needs: [server, desktop]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist }
+      - name: Flatten
+        run: find dist -type f -print -exec mv {} dist/ \; 2>/dev/null; ls -la dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true

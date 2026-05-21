@@ -1,0 +1,18 @@
+# omlctl 配置示例
+server_url: "http://your-vps:8080"
+device_name: "my-laptop"
+data_dir: "./data"
+
+# daemon 轮询服务端获取服务变更的间隔；0 使用默认 30 秒
+# 在 daemon 启动后，每个周期会调用一次 /api/devices/me/bootstrap，
+# 既检测远端配置变更触发隧道重建，也充当 keepalive 让服务端感知设备在线
+reload_interval_seconds: 0
+
+# 本机 daemon 与 UI/CLI 通信的 IPC 端点
+# Linux/macOS: 留空表示用默认 unix socket 路径（data_dir 下 ipc.sock）
+# Windows:     留空表示用默认 named pipe 名称（\\.\pipe\oml-<device_name>）
+ipc_socket: ""
+
+log:
+  level: "info"
+  format: "text"

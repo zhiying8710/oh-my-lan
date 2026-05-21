@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Monochrome 浅色版：白底黑字。
+  适用：浅色背景文档、白色 T 恤印刷、报纸黑白。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan — monochrome light</title>
+  <desc id="d">Black mark on white. For light backgrounds.</desc>
+  <rect width="1024" height="1024" rx="229" fill="#fff"/>
+  <g fill="none" stroke="#000" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="242" cy="512" r="160"/>
+    <path d="M 512 672 V 432 A 80 80 0 0 1 672 432 V 672 M 672 432 A 80 80 0 0 1 832 432 V 672"/>
+    <line x1="942" y1="352" x2="942" y2="672"/>
+  </g>
+  <circle cx="242" cy="512" r="28" fill="#000"/>
+</svg>

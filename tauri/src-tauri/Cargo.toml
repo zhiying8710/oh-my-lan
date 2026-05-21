@@ -1,0 +1,32 @@
+[package]
+name = "oh-my-lan-desktop"
+version = "0.1.0"
+description = "oh-my-lan desktop management"
+edition = "2021"
+rust-version = "1.77"
+
+# 启用 lib 是 Tauri 2.x 的标准布局（main.rs 仅作为 thin wrapper）
+[lib]
+name = "oh_my_lan_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# 开启 devtools 让 release 模式下也能看 WebView 控制台 / 元素 / Network
+# （生产构建若不希望用户看到，可改成 features = []）
+tauri = { version = "2", features = ["devtools"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+incremental = false
+opt-level = "s"
+strip = true

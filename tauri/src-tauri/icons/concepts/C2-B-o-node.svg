@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan — o with node</title>
+  <desc id="d">Refined oml lettermark with a node dot inside the o, hinting at an endpoint device.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="229" fill="url(#bg)"/>
+
+  <g fill="none" stroke="#fff" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="250" cy="560" r="130"/>
+    <path d="M 410 720
+             L 410 480
+             Q 410 400 489 400
+             Q 568 400 568 480
+             L 568 720
+             M 568 480
+             Q 568 400 647 400
+             Q 726 400 726 480
+             L 726 720"/>
+    <line x1="826" y1="280" x2="826" y2="720"/>
+  </g>
+
+  <!-- o 中心节点 -->
+  <circle cx="250" cy="560" r="32" fill="#fff"/>
+</svg>

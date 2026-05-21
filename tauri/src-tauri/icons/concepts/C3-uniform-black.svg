@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan</title>
+  <desc id="d">Lowercase oml lettermark on black: o slightly downscaled (optical sizing) to balance against the denser m. Endpoint node inside the o.</desc>
+
+  <!-- 背景：纯黑圆角方 -->
+  <rect width="1024" height="1024" rx="229" fill="#000"/>
+
+  <!--
+    Optical sizing 修正：
+    - 圆形字符（o）几何大小做 negative overshoot：visual 直径 360，比 m/l 的 visual 高 400 略小
+    - m: 中心线 y∈[432, 672] + 拱顶 y=352。stems round-cap 后 visual bottom=712, 拱形 visual top=312
+    - l: 中心线 y∈[352, 672]，round-cap 后 visual band=[312, 712]
+    - 三字母 baseline 都终于真正"看着齐"
+    - 整体水平居中：左 padding ≈ 62、右 padding ≈ 42（细微不对称是因为 o 圆形重心略偏左）
+  -->
+  <g fill="none" stroke="#fff" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
+    <!-- o：r=140（之前 160 → visual 缩 40px）-->
+    <circle cx="262" cy="512" r="140"/>
+
+    <!-- m：3 个 stem + 2 个半圆弧拱 -->
+    <path d="M 512 672
+             V 432
+             A 80 80 0 0 1 672 432
+             V 672
+             M 672 432
+             A 80 80 0 0 1 832 432
+             V 672"/>
+
+    <!-- l：无 ascender，跟 m 同 visual band -->
+    <line x1="942" y1="352" x2="942" y2="672"/>
+  </g>
+
+  <!-- o 中心节点：直径同步缩小（28→24） -->
+  <circle cx="262" cy="512" r="24" fill="#fff"/>
+</svg>

@@ -1,0 +1,352 @@
+/* oh-my-lan admin UI — 极简风格，零依赖 */
+:root {
+  --bg: #fafafa;
+  --fg: #1a1a1a;
+  --muted: #6a737d;
+  --border: #e0e0e0;
+  --accent: #2b6cb0;
+  --accent-fg: #ffffff;
+  --error: #c53030;
+  --online: #2f855a;
+  --offline: #a0aec0;
+  --danger: #c53030;
+  --card-bg: #ffffff;
+  --hover: #f1f5f9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a1a;
+    --fg: #e4e4e7;
+    --muted: #9ca3af;
+    --border: #2a2a2a;
+    --accent: #60a5fa;
+    --accent-fg: #0b0b0b;
+    --error: #f87171;
+    --online: #4ade80;
+    --offline: #6b7280;
+    --danger: #f87171;
+    --card-bg: #232323;
+    --hover: #2d2d2d;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card-bg);
+}
+
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header .brand {
+  display: flex; align-items: baseline; gap: 12px;
+  min-width: 0;  /* 让超长 server-info 能省略而不撑破 flex 父 */
+}
+header .brand #server-info {
+  /* server-info 之前在 actions 区右浮，离 brand 远；移到 brand 内紧贴 h1，
+     用 ::before "·" 显式分隔——"接线总机仪表带"的语义 */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+header .brand #server-info:not(:empty)::before {
+  content: "·"; margin-right: 8px; color: var(--muted);
+}
+header .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+main { padding: 20px; max-width: 1280px; margin: 0 auto; }
+
+button {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
+  border-radius: 4px;
+  cursor: pointer;
+}
+button:hover { background: var(--hover); }
+button[type="submit"], .btn-primary {
+  background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+}
+.btn-danger { color: var(--danger); }
+/* danger hover：背景填红、文字用 accent-fg（白/极深灰随主题反转），不写死 #fff */
+.btn-danger:hover { background: var(--danger); color: var(--accent-fg); border-color: var(--danger); }
+
+/* 禁用态：所有 button 类（含 .btn-primary / .btn-danger / .btn-link）统一处理。
+   关键点：禁用 :hover 行为 + 半透明 + not-allowed 光标。
+   `pointer-events: none` 会一并禁掉点击事件，避免 disabled HTML 属性失效时仍可点 */
+button:disabled,
+button[disabled],
+button.btn-primary:disabled,
+button.btn-danger:disabled,
+button.btn-link:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: var(--bg);
+  color: var(--muted);
+  border-color: var(--border);
+  text-decoration: none;
+}
+button:disabled:hover,
+button[disabled]:hover {
+  background: var(--bg);
+  color: var(--muted);
+  border-color: var(--border);
+}
+.btn-link {
+  background: transparent; border: 0; padding: 6px 4px;
+  color: var(--muted); text-decoration: underline; cursor: pointer;
+}
+.btn-link:hover { color: var(--fg); background: transparent; }
+
+/* 输入框 + 紧贴右侧的辅助按钮（"生成 token"） */
+.input-with-action { display: flex; gap: 4px; align-items: stretch; }
+.input-with-action input { flex: 1; }
+
+/* 开机自启卡片（已从原 daemon-card 拆出来），与 daemon-card 之间留 16px 距 */
+#autostart-card { margin-top: 16px; }
+.autostart-state-group { display: inline-flex; align-items: center; gap: 8px; }
+.autostart-label { font-weight: 500; color: var(--muted); font-size: 12px; }
+
+/* 通用 alert 弹窗：复用 modal 风格，但单按钮居中、文本支持换行 */
+.alert-modal-body { min-width: 320px; max-width: 480px; }
+.alert-title { margin: 0 0 12px 0; font-size: 16px; }
+.alert-title.alert-error { color: var(--danger); }
+.alert-message {
+  margin: 0 0 16px 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+button.row-btn {
+  font-size: 12px;
+  padding: 3px 8px;
+  margin-right: 4px;
+}
+
+input, select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
+  border-radius: 4px;
+  width: 100%;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 24px;
+  max-width: 400px;
+  margin: 40px auto;
+}
+.card h2 { margin-top: 0; }
+.card p { color: var(--muted); }
+.card form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.card form input { flex: 1; }
+.login-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+
+.error { color: var(--error); font-size: 13px; margin-top: 12px; }
+.muted { color: var(--muted); font-size: 12px; }
+
+/* gap 从 4px 放到 8px：原先 hover 区域几乎贴边、视觉上 tab 之间无呼吸 */
+.tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab {
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  padding: 8px 14px; border-radius: 0; color: var(--muted); cursor: pointer;
+}
+.tab.active { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+
+.panel-actions {
+  display: flex; gap: 8px; margin-bottom: 12px;
+  align-items: center;
+}
+/* Loading 指示：fetch 期间 panel 上挂 aria-busy="true"，CSS 在 panel-actions 右上角
+   显示一个 muted 圆点。不动布局属性、不打扰用户。≤150ms 视觉反馈窗口符合 "Snappy"。 */
+.tab-panel[aria-busy="true"] .panel-actions::after {
+  content: "";
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  margin-left: auto;
+  opacity: 0.6;
+  animation: oml-pulse 1s ease-in-out infinite;
+}
+@keyframes oml-pulse {
+  0%, 100% { opacity: 0.2; transform: scale(1); }
+  50%      { opacity: 0.8; transform: scale(1.25); }
+}
+/* 没有 .panel-actions 的 tab（devices/audit 之前 + info）也要 fallback 指示。
+   表格本身 fetch 期间 opacity 微降一档，比"完全无变化"明显，比"灰一片"克制 */
+.tab-panel[aria-busy="true"] table,
+.tab-panel[aria-busy="true"] dl,
+.tab-panel[aria-busy="true"] .metrics-grid {
+  opacity: 0.75;
+  transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+thead { background: var(--bg); }
+th, td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+th { font-weight: 600; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--hover); }
+
+/* Triple-Code Rule: 颜色 + 字重 + 字符形状（● vs ○）三轴同时编码。
+   显式声明 offline 的 font-weight，让"在线 600 / 离线 400" 的字重对比可被 CSS lint 与
+   屏幕阅读器/对比工具感知（隐式继承会让"对比"消失在默认值里）。 */
+.status-online { color: var(--online); font-weight: 600; }
+.status-offline { color: var(--offline); font-weight: 400; }
+
+.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 12px; }
+
+dl {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 12px 24px;
+  background: var(--card-bg);
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+dt { color: var(--muted); }
+dd { margin: 0; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace; font-size: 12px; word-break: break-all; }
+
+/* 空态：主文案 + 下一步指引。两行，第二行更轻，给"先做什么"留位置。
+   不是营销空态那种插画 + 大按钮，是 deadpan tooling 风格的一行解释 */
+.empty { text-align: center; color: var(--muted); padding: 40px 20px; }
+.empty .empty-title { font-size: 14px; color: var(--fg); margin-bottom: 8px; }
+.empty .empty-hint { font-size: 12px; color: var(--muted); max-width: 60ch; margin: 0 auto; line-height: 1.5; }
+
+/* dialog/modal */
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
+  background: var(--card-bg);
+  color: var(--fg);
+  max-width: 480px;
+  width: 90%;
+}
+/* backdrop 用 tinted neutral 而不是纯黑：oklch 26.6/0.005/250 + 50% alpha，
+   与 bg 色相一致（向 accent 蓝倾斜），符合 Tinted Neutral Rule。
+   语义仍是焦点收束（DESIGN.md Elevation 例外条款），不是装饰阴影 */
+dialog::backdrop { background: oklch(0.12 0.005 250 / 0.55); }
+.modal-form { padding: 24px; }
+.modal-form h3 { margin-top: 0; }
+.modal-form label { display: block; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+.modal-form label input,
+.modal-form label select { margin-top: 4px; }
+.modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;
+}
+
+.token-display {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+/* 本机 daemon 控制（Tauri 专用 tab） */
+.local-card {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin: 12px 0;
+}
+.form-row label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.form-row label input {
+  margin-top: 4px;
+}
+.local-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16px 0 8px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.local-actions {
+  display: flex;
+  gap: 8px;
+}
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+#current-server-display {
+  word-break: break-all;
+}
+
+/* metrics 卡片 */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.metric-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+}
+.metric-card .metric-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.metric-card .metric-value {
+  font-size: 24px;
+  font-weight: 600;
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}

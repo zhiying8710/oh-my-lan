@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>oh-my-lan · admin</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>oh-my-lan</h1>
+    <!-- server-info 紧贴标题右侧（· 分隔），更符合 "接线总机" 仪表带的语义 -->
+    <span id="server-info" class="muted"></span>
+  </div>
+  <div class="actions">
+    <button id="issue-token-btn" type="button" hidden>生成 enrollment token</button>
+    <button id="refresh-btn" type="button" hidden>刷新</button>
+    <button id="logout-btn" type="button" hidden>退出</button>
+  </div>
+</header>
+
+<main>
+  <!-- 服务器配置视图（仅 Tauri 环境） -->
+  <section id="server-config-view" class="card" hidden>
+    <h2>连接服务器</h2>
+    <p>请填写 omlserver 控制平面地址，例如 <code>http://vps.example.com:8080</code>。</p>
+    <form id="server-config-form">
+      <input id="server-url-input" type="url" placeholder="http://vps:8080" required>
+      <button type="submit">下一步</button>
+    </form>
+    <p id="server-config-err" class="error" hidden></p>
+  </section>
+
+  <!-- 登录视图 -->
+  <section id="login-view" class="card" hidden>
+    <h2>登录</h2>
+    <p class="muted">使用 <code>omlserver admin user set</code> 创建的账号密码登录。</p>
+    <p class="muted" id="current-server-display"></p>
+    <form id="login-form">
+      <label class="login-field">
+        <span>用户名</span>
+        <input id="username-input" type="text" autocomplete="username" required>
+      </label>
+      <label class="login-field">
+        <span>密码</span>
+        <input id="password-input" type="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit">登录</button>
+    </form>
+    <p id="login-err" class="error" hidden></p>
+    <p class="muted">
+      <a href="#" id="change-server-link" hidden>更换服务器</a>
+    </p>
+  </section>
+
+  <!-- 主视图 -->
+  <section id="main-view" hidden>
+    <nav class="tabs">
+      <button class="tab active" data-tab="devices">设备</button>
+      <button class="tab" data-tab="services">服务</button>
+      <button class="tab" data-tab="forwards">Forward</button>
+      <button class="tab" data-tab="audit">审计</button>
+      <button class="tab" data-tab="info">服务端</button>
+      <button class="tab tab-tauri" data-tab="local" hidden>本机</button>
+    </nav>
+
+    <div id="tab-devices" class="tab-panel">
+      <!-- devices tab 加主操作入口：原先加设备入口只在 header，跨视觉区域。
+           此处与 services/forwards tab 的 "+发布服务"/"+添加 forward" 入口结构对齐。 -->
+      <div class="panel-actions">
+        <button id="devices-issue-token-btn" type="button">+ 生成 enrollment token</button>
+      </div>
+      <table>
+        <thead><tr><th>名称</th><th>状态</th><th>服务</th><th>Forward</th><th>最后活跃</th><th>注册时间</th><th>ID</th><th></th></tr></thead>
+        <tbody id="devices-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="tab-services" class="tab-panel" hidden>
+      <div class="panel-actions">
+        <button id="service-add-btn" type="button">+ 发布服务</button>
+      </div>
+      <table>
+        <thead><tr><th>设备</th><th>名称</th><th>协议</th><th>本地地址</th><th>公网端口</th><th>状态</th><th>创建时间</th><th></th></tr></thead>
+        <tbody id="services-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="tab-forwards" class="tab-panel" hidden>
+      <div class="panel-actions">
+        <button id="forward-add-btn" type="button">+ 添加 forward</button>
+      </div>
+      <table>
+        <!-- 5 列：合并原本的 本地端口 / → / 远端设备 / 远端服务 / 公网端口 → 单列 "路由" -->
+        <thead><tr><th>Owner 设备</th><th>路由</th><th>协议</th><th>状态</th><th></th></tr></thead>
+        <tbody id="forwards-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="tab-audit" class="tab-panel" hidden>
+      <p class="muted">最近 200 条审计记录（按时间倒序）。actor 字段：<code>admin:&lt;短指纹&gt;</code> / <code>device:&lt;id&gt;</code> / <code>system</code>。</p>
+      <table>
+        <thead><tr><th>时间</th><th>动作</th><th>主体</th><th>目标</th><th>详情</th></tr></thead>
+        <tbody id="audit-tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="tab-info" class="tab-panel" hidden>
+      <div class="metrics-grid" id="metrics-grid"></div>
+      <dl id="info-dl"></dl>
+    </div>
+
+    <!-- 本机 daemon 控制面板（仅 Tauri 显示） -->
+    <div id="tab-local" class="tab-panel" hidden>
+      <!-- 设备注册卡片：state.json 不存在时显示；注册成功后自动隐藏 -->
+      <div class="card local-card" id="enroll-card" hidden>
+        <h2>注册本机为新设备</h2>
+        <p class="muted">
+          本机尚未注册到当前服务端。请在服务端 Web 管理页点「生成 enrollment token」，
+          把得到的一次性 token 粘到下面，并填一个设备名（在服务端唯一）。
+        </p>
+        <form id="enroll-form" class="modal-form">
+          <label>服务器
+            <input id="enroll-server-display" type="text" disabled>
+          </label>
+          <label>设备名（在服务端唯一）
+            <input id="enroll-name-input" type="text" required placeholder="例如 my-macbook">
+          </label>
+          <label>enrollment token
+            <div class="input-with-action">
+              <input id="enroll-token-input" type="text" required placeholder="ot_xxx" autocomplete="off">
+              <button type="button" id="enroll-generate-token-btn" class="btn-link">生成</button>
+            </div>
+          </label>
+          <div class="modal-actions">
+            <button type="submit" class="btn-primary">注册并启动 daemon</button>
+          </div>
+        </form>
+        <p id="enroll-msg" class="muted"></p>
+      </div>
+
+      <!-- daemon-card 拆成两张：一张管 daemon 生命周期（≤4 按钮，1 primary），
+           一张管开机自启（2 按钮，且互斥，永远只有 1 个 enabled）。
+           原先 6 按钮 + 2 primary 同卡，违反 One-Primary-Per-Card + 认知负荷 ≤4 软上限。 -->
+      <div class="card local-card" id="daemon-card" hidden>
+        <h2>本机 daemon</h2>
+        <p class="muted">通过 Tauri 直接 spawn/kill omlctl 子进程；不需要 SSH 进服务器。</p>
+
+        <div class="form-row">
+          <label>omlctl 路径（留空使用 app 内置）
+            <input id="ctl-path-input" type="text" placeholder="留空 → 用 .app 内置 sidecar">
+          </label>
+          <label>客户端 config 路径（留空 → 平台默认；首次会自动创建）
+            <input id="ctl-config-input" type="text" placeholder="加载中…">
+          </label>
+        </div>
+
+        <div class="local-status">
+          <div id="daemon-status-badge" class="status-badge">查询中…</div>
+          <div class="local-actions">
+            <!-- 初始默认两按钮都 disabled，等首次 status 回来再 enable 对应一个；
+                 避免"状态未知"时用户点 stop 把别的进程的现场搅乱 -->
+            <button id="daemon-start-btn" type="button" class="btn-primary" disabled>启动 daemon</button>
+            <button id="daemon-stop-btn" type="button" class="btn-danger" disabled>停止 daemon</button>
+            <button id="daemon-refresh-btn" type="button">刷新状态</button>
+            <button id="daemon-reenroll-btn" type="button" class="btn-link">重新注册本机…</button>
+          </div>
+        </div>
+        <p id="daemon-msg" class="muted"></p>
+      </div>
+
+      <!-- 开机自启独立成卡。两按钮（开启 / 关闭）始终互斥 disabled，只暴露 1 个可点 -->
+      <div class="card local-card" id="autostart-card" hidden>
+        <h2>开机自启</h2>
+        <p class="muted">把 daemon 注册到系统服务管理器；开启后 UI 启停按钮会被锁定，由 launchd / systemd / VBS 接管。</p>
+        <div class="local-status">
+          <div class="autostart-state-group">
+            <span class="autostart-label">当前：</span>
+            <span id="autostart-state" class="status-badge">查询中…</span>
+          </div>
+          <div class="local-actions">
+            <button id="autostart-enable-btn" type="button" class="btn-primary" disabled>开启自启</button>
+            <button id="autostart-disable-btn" type="button" class="btn-danger" disabled>关闭自启</button>
+          </div>
+        </div>
+        <p id="autostart-msg" class="muted"></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- modals -->
+<dialog id="service-modal">
+  <form method="dialog" class="modal-form" id="service-form">
+    <h3>发布服务</h3>
+    <label>设备
+      <select name="device_id" required></select>
+    </label>
+    <label>名称 <input name="name" required placeholder="ssh"></label>
+    <label>协议
+      <select name="protocol">
+        <option value="tcp">tcp</option>
+        <option value="udp">udp</option>
+      </select>
+    </label>
+    <label>本地地址（仅端口号默认 127.0.0.1，如 22；或完整 host:port）
+      <input name="local_addr" required placeholder="22 或 192.168.1.10:22">
+    </label>
+    <div class="modal-actions">
+      <button type="button" data-close>取消</button>
+      <button type="submit">创建</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="forward-modal">
+  <form method="dialog" class="modal-form" id="forward-form">
+    <h3>添加 forward</h3>
+    <label>Owner 设备
+      <select name="owner_device_id" required></select>
+    </label>
+    <label>目标服务
+      <select name="remote_service_id" required></select>
+    </label>
+    <label>本机端口 <input name="local_port" type="number" min="1" max="65535" required placeholder="8022"></label>
+    <div class="modal-actions">
+      <button type="button" data-close>取消</button>
+      <button type="submit">创建</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="token-modal">
+  <div class="modal-form">
+    <h3>新的 enrollment token</h3>
+    <p class="muted">只显示一次，请立即复制后用于 <code>omlctl enroll --token</code>。</p>
+    <pre id="issued-token-display" class="mono token-display"></pre>
+    <p class="muted">过期时间：<span id="issued-token-expires"></span></p>
+    <div class="modal-actions">
+      <button type="button" data-close>关闭</button>
+      <button type="button" id="copy-token-btn">复制</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 通用 alert / confirm 弹窗：替代浏览器原生 window.alert / window.confirm。
+     用 <dialog> 原生元素得到背景遮罩 + Esc 关闭，不再依赖 webview 风格 -->
+<dialog id="alert-modal">
+  <div class="modal-form alert-modal-body">
+    <h3 id="alert-title" class="alert-title">提示</h3>
+    <p id="alert-message" class="alert-message"></p>
+    <div class="modal-actions">
+      <button type="button" id="alert-cancel-btn" hidden>取消</button>
+      <button type="button" id="alert-ok-btn" class="btn-primary">好</button>
+    </div>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

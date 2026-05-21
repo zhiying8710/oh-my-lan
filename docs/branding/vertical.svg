@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 880" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan — vertical lockup</title>
+  <desc id="d">Icon stacked above the wordmark.</desc>
+
+  <rect width="720" height="880" fill="#000"/>
+
+  <!-- Icon 居中 480x480 -->
+  <g transform="translate(120,80)">
+    <rect width="480" height="480" rx="107" fill="#0d0d0f"/>
+    <g transform="scale(0.46875)" fill="none" stroke="#fff" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="242" cy="512" r="160"/>
+      <path d="M 512 672 V 432 A 80 80 0 0 1 672 432 V 672 M 672 432 A 80 80 0 0 1 832 432 V 672"/>
+      <line x1="942" y1="352" x2="942" y2="672"/>
+    </g>
+    <circle cx="113" cy="240" r="13" fill="#fff"/>
+  </g>
+
+  <!-- Wordmark 居中 -->
+  <text x="360" y="780" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="120" font-weight="600" letter-spacing="-3" fill="#fff">oh-my-lan</text>
+</svg>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Horizontal lockup: icon + wordmark.
+  Wordmark 用 system font，避免手撸字形的不一致；
+  支持的字体堆栈：macOS/iOS SF Pro → Windows Segoe UI → Linux Inter / Helvetica → 通用 sans-serif.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan — horizontal lockup</title>
+  <desc id="d">Square icon on the left followed by the wordmark "oh-my-lan".</desc>
+
+  <rect width="1280" height="320" fill="#000"/>
+
+  <!-- Icon: 240×240, 上下各 padding 40, 左 padding 40 -->
+  <g transform="translate(40,40)">
+    <rect width="240" height="240" rx="53.7" fill="#0d0d0f"/>
+    <g transform="scale(0.234375)" fill="none" stroke="#fff" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="242" cy="512" r="160"/>
+      <path d="M 512 672 V 432 A 80 80 0 0 1 672 432 V 672 M 672 432 A 80 80 0 0 1 832 432 V 672"/>
+      <line x1="942" y1="352" x2="942" y2="672"/>
+    </g>
+    <circle cx="56.7" cy="120" r="6.6" fill="#fff"/>
+  </g>
+
+  <!-- Wordmark: 系统字体 -->
+  <text x="320" y="215"
+        font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif"
+        font-size="160" font-weight="600" letter-spacing="-4" fill="#fff">oh-my-lan</text>
+</svg>

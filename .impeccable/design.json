@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-21T00:00:00Z",
+  "title": "Design System: oh-my-lan",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "Page Background",
+        "canonical": "oklch(98% 0.002 250)",
+        "darkValue": "#1a1a1a",
+        "tonalRamp": ["#0b0b0b", "#1a1a1a", "#232323", "#2d2d2d", "#3a3a3a", "#5a5a5a", "#9ca3af", "#fafafa"]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Foreground Text",
+        "canonical": "oklch(20% 0.005 250)",
+        "darkValue": "#e4e4e7",
+        "tonalRamp": ["#1a1a1a", "#2a2a2a", "#3a3a3a", "#4a4a4a", "#6a737d", "#9ca3af", "#cbd5e1", "#e4e4e7"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Text",
+        "canonical": "oklch(55% 0.01 250)",
+        "darkValue": "#9ca3af",
+        "tonalRamp": ["#374151", "#4b5563", "#6a737d", "#9ca3af", "#cbd5e1", "#e2e8f0", "#f1f5f9", "#fafafa"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Border Line",
+        "canonical": "oklch(91% 0.005 250)",
+        "darkValue": "#2a2a2a",
+        "tonalRamp": ["#1a1a1a", "#2a2a2a", "#3a3a3a", "#6a737d", "#a0aec0", "#cbd5e1", "#e0e0e0", "#f1f5f9"]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Service Blue (accent)",
+        "canonical": "oklch(50% 0.13 245)",
+        "darkValue": "#60a5fa",
+        "tonalRamp": ["#0c2540", "#143263", "#1c4587", "#2b6cb0", "#3b82f6", "#60a5fa", "#93c5fd", "#dbeafe"]
+      },
+      "online": {
+        "role": "secondary",
+        "displayName": "Live Green",
+        "canonical": "oklch(55% 0.14 145)",
+        "darkValue": "#4ade80",
+        "tonalRamp": ["#14532d", "#166534", "#2f855a", "#16a34a", "#22c55e", "#4ade80", "#86efac", "#dcfce7"]
+      },
+      "offline": {
+        "role": "secondary",
+        "displayName": "Offline Gray",
+        "canonical": "oklch(70% 0.02 250)",
+        "darkValue": "#6b7280",
+        "tonalRamp": ["#374151", "#4b5563", "#6b7280", "#9ca3af", "#a0aec0", "#cbd5e1", "#e2e8f0", "#f1f5f9"]
+      },
+      "error": {
+        "role": "tertiary",
+        "displayName": "Fault Red",
+        "canonical": "oklch(55% 0.18 25)",
+        "darkValue": "#f87171",
+        "tonalRamp": ["#7f1d1d", "#991b1b", "#c53030", "#dc2626", "#ef4444", "#f87171", "#fca5a5", "#fee2e2"]
+      },
+      "card-bg": {
+        "role": "neutral",
+        "displayName": "Card Surface",
+        "canonical": "oklch(100% 0 0)",
+        "darkValue": "#232323",
+        "tonalRamp": ["#1a1a1a", "#232323", "#2d2d2d", "#3a3a3a", "#6a737d", "#a0aec0", "#e0e0e0", "#ffffff"]
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Hover Tint",
+        "canonical": "oklch(96% 0.01 240)",
+        "darkValue": "#2d2d2d",
+        "tonalRamp": ["#2a2a2a", "#2d2d2d", "#3a3a3a", "#6a737d", "#a0aec0", "#cbd5e1", "#e2e8f0", "#f1f5f9"]
+      }
+    },
+    "typographyMeta": {
+      "title": { "displayName": "Title", "purpose": "Page header h1, dialog h3, card h2. Max font size in system at 16px." },
+      "body": { "displayName": "Body", "purpose": "Default running text, table cells, inputs, buttons." },
+      "label": { "displayName": "Label", "purpose": "Table headers, status badges, metric labels. 12px tracked uppercase." },
+      "mono": { "displayName": "Mono", "purpose": "Technical entities: pid, port, device_id, fingerprint, stderr, JSON values." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "ease-out-fast", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default for hover/focus state changes. 150ms duration." }
+    ],
+    "breakpoints": [
+      { "name": "main-max", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Form submit + main card action. One per card/dialog max.",
+      "html": "<button class=\"ds-btn-primary\">登录</button>",
+      "css": ".ds-btn-primary { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; padding: 6px 14px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #ffffff; border-radius: 4px; cursor: pointer; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: #1c4587; border-color: #1c4587; } .ds-btn-primary:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; background: #fafafa; color: #6a737d; border-color: #e0e0e0; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Standard neutral action. Most common variant.",
+      "html": "<button class=\"ds-btn-default\">刷新</button>",
+      "css": ".ds-btn-default { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; padding: 6px 14px; border: 1px solid #e0e0e0; background: #ffffff; color: #1a1a1a; border-radius: 4px; cursor: pointer; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-default:hover { background: #f1f5f9; } .ds-btn-default:focus-visible { outline: 2px solid #2b6cb0; outline-offset: 2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive action: stop daemon, revoke token, disable autostart. Red text default, fills red on hover.",
+      "html": "<button class=\"ds-btn-danger\">停止 daemon</button>",
+      "css": ".ds-btn-danger { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; padding: 6px 14px; border: 1px solid #e0e0e0; background: #ffffff; color: #c53030; border-radius: 4px; cursor: pointer; transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-danger:hover { background: #c53030; color: #ffffff; border-color: #c53030; } .ds-btn-danger:focus-visible { outline: 2px solid #c53030; outline-offset: 2px; }"
+    },
+    {
+      "name": "Link Button",
+      "kind": "button",
+      "refersTo": "button-link",
+      "description": "Auxiliary action embedded in text or attached to inputs (e.g. \"生成 token\" next to token input).",
+      "html": "<button class=\"ds-btn-link\">重新注册本机…</button>",
+      "css": ".ds-btn-link { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; padding: 6px 4px; background: transparent; border: 0; color: #6a737d; text-decoration: underline; cursor: pointer; } .ds-btn-link:hover { color: #1a1a1a; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Default form field. Standard width 100% inside its container.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"my-macbook\">",
+      "css": ".ds-input { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px; padding: 8px 12px; border: 1px solid #e0e0e0; background: #ffffff; color: #1a1a1a; border-radius: 4px; width: 100%; box-sizing: border-box; } .ds-input::placeholder { color: #6a737d; } .ds-input:focus-visible { outline: 2px solid #2b6cb0; outline-offset: -1px; border-color: #2b6cb0; }"
+    },
+    {
+      "name": "Status Badge (Online)",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "Pill-shaped state indicator. Always uses color + text + weight triple-coding.",
+      "html": "<span class=\"ds-status-badge ds-status-online\">运行中 · pid 79665</span>",
+      "css": ".ds-status-badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #fafafa; border: 1px solid #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-status-online { color: #2f855a; }"
+    },
+    {
+      "name": "Status Badge (Offline)",
+      "kind": "chip",
+      "refersTo": "status-badge",
+      "description": "Offline / stopped state. Muted gray; explicitly NOT red because offline is not an error.",
+      "html": "<span class=\"ds-status-badge ds-status-offline\">已停止</span>",
+      "css": ".ds-status-badge { display: inline-block; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 400; background: #fafafa; border: 1px solid #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-status-offline { color: #a0aec0; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Login / server config / local daemon panel container.",
+      "html": "<section class=\"ds-card\"><h2>本机 daemon</h2><p class=\"ds-muted\">通过 Tauri 直接 spawn/kill omlctl 子进程。</p></section>",
+      "css": ".ds-card { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 24px; max-width: 720px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-card h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px 0; color: #1a1a1a; } .ds-card .ds-muted { font-size: 12px; color: #6a737d; margin: 0 0 16px 0; }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "table",
+      "description": "Devices / services / forwards / audit table. Dense rows, no zebra striping, header tracked uppercase.",
+      "html": "<table class=\"ds-table\"><thead><tr><th>名称</th><th>状态</th><th>最后活跃</th></tr></thead><tbody><tr><td>my-macbook</td><td><span style=\"color:#2f855a;font-weight:600\">在线</span></td><td class=\"ds-mono\">2 秒前</td></tr><tr><td>vps-jp</td><td><span style=\"color:#a0aec0\">离线</span></td><td class=\"ds-mono\">3 小时前</td></tr></tbody></table>",
+      "css": ".ds-table { width: 100%; border-collapse: collapse; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-table thead { background: #fafafa; } .ds-table th, .ds-table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #e0e0e0; font-size: 13px; color: #1a1a1a; } .ds-table th { font-weight: 600; color: #6a737d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; } .ds-table tbody tr:last-child td { border-bottom: none; } .ds-table tbody tr:hover { background: #f1f5f9; } .ds-mono { font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace; font-size: 12px; }"
+    },
+    {
+      "name": "Tabs",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "Top-level view switcher. Active tab marked with accent underline + bold.",
+      "html": "<nav class=\"ds-tabs\"><button class=\"ds-tab ds-tab-active\">设备</button><button class=\"ds-tab\">服务</button><button class=\"ds-tab\">Forward</button><button class=\"ds-tab\">审计</button></nav>",
+      "css": ".ds-tabs { display: flex; gap: 4px; border-bottom: 1px solid #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-tab { background: transparent; border: none; border-bottom: 2px solid transparent; padding: 8px 14px; border-radius: 0; color: #6a737d; cursor: pointer; font-size: 13px; transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-tab:hover { color: #1a1a1a; } .ds-tab-active { color: #1a1a1a; border-bottom-color: #2b6cb0; font-weight: 600; }"
+    },
+    {
+      "name": "Metric Card",
+      "kind": "card",
+      "refersTo": "metric-card",
+      "description": "Server-tab runtime stats. The ONE place the 24px mono number is allowed, since the metric IS the read-target.",
+      "html": "<div class=\"ds-metric-card\"><div class=\"ds-metric-label\">UPTIME</div><div class=\"ds-metric-value\">3d 14h</div></div>",
+      "css": ".ds-metric-card { background: #ffffff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px; min-width: 180px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; } .ds-metric-label { font-size: 11px; color: #6a737d; text-transform: uppercase; letter-spacing: 0.5px; } .ds-metric-value { font-size: 24px; font-weight: 600; margin-top: 4px; font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace; color: #1a1a1a; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Switchboard",
+    "overview": "oh-my-lan 的 UI 是一台安静的接线总机——它接住所有 mesh 里的设备/服务/forward 信号，按需点亮指示灯，绝不主动吸引注意力。它不庆祝、不感叹、不引导，因为操作员只在需要的时候过来扫一眼，确认链路正常，加一条规则，然后关掉窗口。系统的密度高、对比克制、动作迅捷。所有装饰性元素都被砍掉：没有大数字 metric、没有渐变 hero、没有彩色阴影、没有 emoji 状态徽章。",
+    "keyCharacteristics": [
+      "Dual-surface, single-codebase：浏览器 /admin/ 与 Tauri desktop 共用同一份 vanilla JS + CSS",
+      "Native theme inheritance：通过 prefers-color-scheme 浅/深双主题切换，跟随系统",
+      "Tinted neutrals + one accent ≤10%：Restrained 配色，蓝色 accent 只用于主按钮/当前 tab/选中态",
+      "Dense data, not airy whitespace：信息密度优先于呼吸感",
+      "Flat surfaces, bordered hierarchy：层级靠 border + 背景色阶表达，几乎不用 box-shadow"
+    ],
+    "rules": [
+      { "name": "The Triple-Code Rule", "body": "状态变化必须同时用颜色 + 文本 + 字重表达。色弱用户与截图用户都不被视觉单通道排除。", "section": "colors" },
+      { "name": "The Tinted Neutral Rule", "body": "所有中性色都向品牌蓝倾斜一个微小色温。#000 和 #fff 永远不用。", "section": "colors" },
+      { "name": "The Accent Quota Rule", "body": "Accent 蓝在任意视图占 ≤10% 像素面积。", "section": "colors" },
+      { "name": "The 16-Cap Rule", "body": "任何文字 ≥ 18px 都是反模式，metric value 是唯一例外。整个系统的视觉重量压在密度而非字号上。", "section": "typography" },
+      { "name": "The Mono For Technical Truth Rule", "body": "pid、port、ID、fingerprint、JSON value、stderr——任何机器生成的精确字符串必须 mono。", "section": "typography" },
+      { "name": "The No Display Font Rule", "body": "不引入第二个 sans 家族，不引入 serif，不引入 web font。", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "没有任何元素默认带 box-shadow，只有原生 <dialog> backdrop 例外，且只用于焦点收束。", "section": "elevation" },
+      { "name": "The Border Is The Hierarchy Rule", "body": "删 border 会让结构崩溃。永远 1px、永远 var(--border)、永远完整四边。禁止 border-left/right 大于 1px 的彩色侧条。", "section": "elevation" },
+      { "name": "The One Primary Per Card Rule", "body": "任意卡片或 dialog 内至多一个 primary button。", "section": "components" },
+      { "name": "The Native Dialog Rule", "body": "全部弹窗用浏览器原生 <dialog> 元素 + dialog.showModal()。不写自家 portal 层。", "section": "components" },
+      { "name": "The Pill Is Status Only Rule", "body": "999px radius 在本系统专属状态指示。chip/tag/小标签不允许复用 pill 形状。", "section": "components" }
+    ],
+    "dos": [
+      "Do 用 OKLCH 范畴的认知组织色彩：bg/card-bg/hover 是同一色相不同明度，跟随 prefers-color-scheme 自然反转。",
+      "Do 把状态用颜色 + 文本 + 字重三重编码。在线行：green + \"在线\" + 600。",
+      "Do 把所有错误根因暴露出来：HTTP code、Rust Error、omlctl stderr 尾部、文件路径——通过 showAlert(msg, { kind: 'error' }) 全文展示。",
+      "Do 用原生 <dialog> 元素做所有 modal。继承浏览器的 Esc 关闭、焦点陷阱、::backdrop 暗化。",
+      "Do 让按钮的禁用态在视觉上看起来真的不能点：opacity 0.4 + not-allowed cursor + 屏蔽 hover。",
+      "Do 用 mono 字体承载所有机器生成的精确字符串（pid、port、device_id、tunnel_secret 短指纹、stderr）。",
+      "Do 用 border + 背景色阶表达层级。card-bg 比 bg 浅一档，table header 比 row 暗一档。",
+      "Do 让浏览器与 Tauri 两端视觉完全一致，只在功能层差异。",
+      "Do 把按钮的字号锁在 13px、表头锁在 12px tracked uppercase、body 锁在 14px。"
+    ],
+    "donts": [
+      "Don't 加紫色渐变 hero、四宫格大数字 metric、\"快开始使用 →\" 的 SaaS-cream landing 风格。",
+      "Don't 装饰性使用 box-shadow。除了原生 <dialog> 的 backdrop 焦点收束，所有面都是平的。",
+      "Don't 用 border-left 或 border-right 大于 1px 当彩色侧条。",
+      "Don't 用 background-clip: text 制造渐变文字。",
+      "Don't 用 emoji 当状态图标。文字 + 颜色已足够。",
+      "Don't 把 status-badge 的 pill 形状复用给 chip / tag / 普通标签。",
+      "Don't 用 bouncing / elastic / cubic-bezier 弹性曲线。所有 transition ≤ 150ms，纯 ease-out。",
+      "Don't 引入 web font。",
+      "Don't 把字号放大到 ≥ 18px——除了 metric value 这一个例外。",
+      "Don't 把多个 primary button 塞进同一张卡片或同一个 dialog。",
+      "Don't 给浏览器和 Tauri 做两套视觉。",
+      "Don't 拿过度简化作为克制的借口：每个操作都开 modal、屏幕大半留白、单色调到没有状态色——那不是 calm，那是无信息。"
+    ]
+  }
+}

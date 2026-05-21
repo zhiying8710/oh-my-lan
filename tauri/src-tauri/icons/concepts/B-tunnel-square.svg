@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan</title>
+  <desc id="d">Two endpoints joined by a tunnel arc, evoking chisel's port-forwarding metaphor.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="229" fill="url(#bg)"/>
+  <!-- 隧道：上下两条对称弧线，中间留空，象征"管道"-->
+  <path d="M 232 512 Q 512 232 792 512" fill="none" stroke="#fff" stroke-width="36" stroke-linecap="round"/>
+  <path d="M 232 512 Q 512 792 792 512" fill="none" stroke="#fff" stroke-width="36" stroke-linecap="round"/>
+  <!-- 两个端点 -->
+  <circle cx="232" cy="512" r="68" fill="#fff"/>
+  <circle cx="792" cy="512" r="68" fill="#fff"/>
+  <!-- 中心圆点（隧道中转） -->
+  <circle cx="512" cy="512" r="46" fill="#fff"/>
+  <circle cx="512" cy="512" r="18" fill="#1e40af"/>
+</svg>

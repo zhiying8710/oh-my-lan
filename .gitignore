@@ -1,0 +1,55 @@
+/bin/
+/dist/
+/data/
+*.db
+*.db-journal
+*.log
+.DS_Store
+node_modules/
+.idea/
+.vscode/
+*.swp
+*.swo
+coverage.out
+
+# Tauri build artifacts
+tauri/src-tauri/target/
+tauri/src-tauri/gen/
+# tauri/dist 是 make tauri-sync 从 internal/server/web/ 镜像出来的副本，CI/local 都会重建
+tauri/dist/
+
+# sidecar binaries（make tauri-bin / CI 生成；不入库）
+tauri/src-tauri/binaries/
+
+# 客户端运行时产物：state.json 含 tunnel_secret，daemon.pid/stderr 含本机 pid。
+# 若用户用相对路径 --config 跑 daemon，这些文件可能落在仓库根目录——一律拒入库
+state.json
+daemon.pid
+daemon.stderr
+# 用户的实际 client.yaml / server.yaml（仅保留 configs/*.example.yaml 入库）
+/client.yaml
+/server.yaml
+/configs/client.yaml
+/configs/server.yaml
+
+# Release packaging 产物——CI 上传 GitHub Release，本地构建不入库
+*.dmg
+*.msi
+*-setup.exe
+*.AppImage
+*.deb
+*.rpm
+*.tar.gz
+
+# Editor swap / cache
+*.tmp
+.env
+.env.local
+.env.*.local
+
+# 仓库根目录下误落的 Go 二进制（应该走 bin/）。曾经被 `go build ./cmd/omlctl`
+# 不带 -o 拉到 root，差点入库
+/omlctl
+/omlserver
+/omlctl.exe
+/omlserver.exe

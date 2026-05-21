@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan</title>
+  <desc id="d">Three nodes connected as a triangle, suggesting client-server-client mesh tunneling.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+    <style>.line{fill:none;stroke:#fff;stroke-width:36;stroke-linecap:round;stroke-linejoin:round}.dot{fill:#fff}</style>
+  </defs>
+  <rect width="1024" height="1024" rx="229" fill="url(#bg)"/>
+  <g class="line">
+    <line x1="320" y1="380" x2="704" y2="380"/>
+    <line x1="320" y1="380" x2="512" y2="730"/>
+    <line x1="704" y1="380" x2="512" y2="730"/>
+  </g>
+  <g class="dot">
+    <circle cx="320" cy="380" r="72"/>
+    <circle cx="704" cy="380" r="72"/>
+    <circle cx="512" cy="730" r="88"/>
+  </g>
+  <circle cx="512" cy="730" r="32" fill="#1e40af"/>
+</svg>

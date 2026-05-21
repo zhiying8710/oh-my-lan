@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan</title>
+  <desc id="d">Lettermark "oml" — circle for o, line and dot for m, line and dot for l — abstractly forming three connected nodes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+    <style>
+      .stem{fill:none;stroke:#fff;stroke-width:64;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+  </defs>
+  <rect width="1024" height="1024" rx="229" fill="url(#bg)"/>
+  <!-- "o"：圆 -->
+  <circle cx="280" cy="512" r="120" fill="none" stroke="#fff" stroke-width="64"/>
+  <!-- "m"：两个弧形拱 -->
+  <path d="M 432 632 L 432 460 Q 432 392 500 392 Q 568 392 568 460 L 568 632
+           M 568 460 Q 568 392 636 392 Q 704 392 704 460 L 704 632"
+        class="stem"/>
+  <!-- "l"：竖线 + 末端圆点 -->
+  <line x1="816" y1="320" x2="816" y2="600" class="stem"/>
+  <circle cx="816" cy="660" r="36" fill="#fff"/>
+</svg>

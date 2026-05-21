@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="t d">
+  <title id="t">oh-my-lan — l as antenna</title>
+  <desc id="d">Refined oml lettermark; the l carries a small circular cap at its top, suggesting a network beacon.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1e40af"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="229" fill="url(#bg)"/>
+
+  <g fill="none" stroke="#fff" stroke-width="80" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="250" cy="560" r="130"/>
+    <path d="M 410 720
+             L 410 480
+             Q 410 400 489 400
+             Q 568 400 568 480
+             L 568 720
+             M 568 480
+             Q 568 400 647 400
+             Q 726 400 726 480
+             L 726 720"/>
+    <!-- l 提前到 y=320 收口；顶部节点单独绘制 -->
+    <line x1="826" y1="320" x2="826" y2="720"/>
+  </g>
+
+  <!-- l 顶端的"节点 / 信标" -->
+  <circle cx="826" cy="232" r="50" fill="#fff"/>
+</svg>
