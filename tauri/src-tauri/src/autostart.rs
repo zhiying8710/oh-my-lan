@@ -169,9 +169,16 @@ pub fn enable(ctl: &Path, config: &Path, stderr: &Path, pid_file: &Path) -> Resu
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("创建 Startup 目录失败: {e}"))?;
         }
-        // VBS 文件应保存为 UTF-16 LE with BOM 才能让 wscript 正确解析中文注释；
-        // 但只用 ASCII 内容时 ANSI/UTF-8 也能跑。为最大兼容，统一 UTF-8 + 仅 ASCII 注释。
-        std::fs::write(&path, vbs_body).map_err(|e| format!("写 vbs {path:?}: {e}"))?;
+        // VBS 必须保存为 UTF-16 LE with BOM。
+        // 历史教训：UTF-8 注释含中文时，cscript/wscript 用系统 ANSI codepage（中文 Windows
+        // 上是 GBK）解读，UTF-8 字节流被错解成乱码 → 注释行末尾被认为是"未闭合语句"
+        // 续到下一行 → 把 `Set WshShell = ...` 吃掉 → 运行时报 "缺少对象 'WshShell'"。
+        // BOM (0xFF 0xFE) 让 VBS 引擎切换到 UTF-16 解析路径，中文字符就能正确处理。
+        let mut vbs_bytes: Vec<u8> = vec![0xFF, 0xFE]; // UTF-16 LE BOM
+        for u in vbs_body.encode_utf16() {
+            vbs_bytes.extend_from_slice(&u.to_le_bytes());
+        }
+        std::fs::write(&path, vbs_bytes).map_err(|e| format!("写 vbs {path:?}: {e}"))?;
         // VBS 在下次登录时才执行；为了"开启自启=立刻起一个 daemon"的直观语义，
         // 这里同步用 wscript.exe 启动一次。launchd/systemd 也是 enable + 立即启动同样的语义。
         let _ = Command::new("wscript.exe")
@@ -411,6 +418,32 @@ mod tests {
         assert!(pid_flag < pid_val);
         assert!(plist.contains("<key>RunAtLoad</key>"));
         assert!(plist.contains("<key>KeepAlive</key>"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_vbs_writes_utf16_le_bom() {
+        // 模拟 autostart::enable 的写入路径，断言文件头是 UTF-16 LE BOM。
+        // 这是为了防止再次回退到 UTF-8 + 中文注释组合（cscript 用 ANSI codepage
+        // 误解读 → 注释末尾续行 → "缺少对象 'WshShell'" 运行时错误）。
+        let vbs_body = render_windows_vbs(
+            Path::new("C:\\oh-my-lan\\omlctl.exe"),
+            Path::new("C:\\oh-my-lan\\client.yaml"),
+            Path::new("C:\\oh-my-lan\\daemon.stderr"),
+            Path::new("C:\\oh-my-lan\\daemon.pid"),
+        );
+        let mut vbs_bytes: Vec<u8> = vec![0xFF, 0xFE];
+        for u in vbs_body.encode_utf16() {
+            vbs_bytes.extend_from_slice(&u.to_le_bytes());
+        }
+        assert_eq!(&vbs_bytes[..2], &[0xFF, 0xFE], "must start with UTF-16 LE BOM");
+        // 解码回 UTF-16 LE 应当能拿回原字符串
+        let decoded: Vec<u16> = vbs_bytes[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let roundtrip = String::from_utf16(&decoded).expect("valid UTF-16");
+        assert_eq!(roundtrip, vbs_body);
     }
 
     #[cfg(target_os = "windows")]
