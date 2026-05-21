@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+use crate::winhide::CommandHideWindow;
+
 #[derive(Default)]
 pub struct DaemonManager {
     child: Mutex<Option<Child>>,
@@ -94,6 +96,7 @@ impl DaemonManager {
             .args(args)
             .stdout(Stdio::null())
             .stderr(stderr_stdio)
+            .hide_window()
             .spawn()
             .map_err(|e| format!("spawn {program} 失败: {e}"))?;
 

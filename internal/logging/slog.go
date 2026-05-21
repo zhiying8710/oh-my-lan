@@ -3,6 +3,7 @@
 package logging
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -16,14 +17,21 @@ type Options struct {
 
 // New 构建写到 stderr 的 *slog.Logger。
 func New(opts Options) *slog.Logger {
+	return NewTo(os.Stderr, opts)
+}
+
+// NewTo 构建写到指定 Writer 的 *slog.Logger。daemon 模式下若 stderr 不可用
+// （例如 Windows GUI 父进程 spawn 的 console-detached 子进程），可以把它指向一个
+// `os.OpenFile(...)` 拿到的 file handle，让运行时日志可调试。
+func NewTo(w io.Writer, opts Options) *slog.Logger {
 	handlerOpts := &slog.HandlerOptions{Level: parseLevel(opts.Level)}
 
 	var handler slog.Handler
 	switch strings.ToLower(opts.Format) {
 	case "json":
-		handler = slog.NewJSONHandler(os.Stderr, handlerOpts)
+		handler = slog.NewJSONHandler(w, handlerOpts)
 	default:
-		handler = slog.NewTextHandler(os.Stderr, handlerOpts)
+		handler = slog.NewTextHandler(w, handlerOpts)
 	}
 	return slog.New(handler)
 }

@@ -9,6 +9,9 @@
 
 mod autostart;
 mod daemon;
+mod winhide;
+
+use winhide::CommandHideWindow;
 
 use std::sync::Arc;
 
@@ -250,6 +253,7 @@ fn daemon_kill_all(
         resolve_daemon_paths(ctl_path.as_deref(), config_path.as_deref())?;
     let output = std::process::Command::new(&resolved_ctl)
         .args(["--config", &resolved_cfg.to_string_lossy(), "daemon", "kill"])
+        .hide_window()
         .output()
         .map_err(|e| format!("调用 {resolved_ctl} daemon kill 失败: {e}"))?;
     if !output.status.success() {
@@ -310,6 +314,7 @@ fn daemon_is_enrolled(
         .args(["--config", &resolved_cfg.to_string_lossy(), "state", "exists"])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
+        .hide_window()
         .status()
         .map_err(|e| format!("调用 {resolved_ctl} 失败: {e}"))?;
     Ok(status.success())
@@ -354,6 +359,7 @@ fn daemon_enroll(
             "--name",
             device_name,
         ])
+        .hide_window()
         .output()
         .map_err(|e| format!("调用 {resolved_ctl} enroll 失败: {e}"))?;
 

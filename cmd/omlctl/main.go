@@ -440,8 +440,15 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 	// --pid-file 让外层（Tauri 桌面 app / launchd / systemd）能用一份文件统一探活。
 	// 不指定时不写文件，保持 CLI 友好。
 	var pidFile string
+	var logFile string
 	startCmd.Flags().StringVar(&pidFile, "pid-file", "", "启动后将当前 pid 写入该文件，退出时尝试删除（用于外部探活）")
+	startCmd.Flags().StringVar(&logFile, "log-file", "", "把 daemon 日志写到该文件而不是 stderr（Windows VBS / launchd daemon 模式需要，因为 stderr 不可见）")
 	startCmd.RunE = func(cmd *cobra.Command, args []string) error {
+		// Windows daemon 由 wscript / Tauri spawn 时父进程是 GUI，Windows 会为我们这种 console
+		// subsystem 子进程分配 console，导致任务栏闪一个黑窗。daemon 模式下不需要 console，
+		// 早期 detach（FreeConsole）让它瞬间消失。其它子命令（service ls / status 等）保留 console。
+		detachConsoleIfNeeded()
+
 		cfg, err := loadCfg(*configPath)
 		if err != nil {
 			return err
@@ -450,7 +457,21 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		logger := logging.New(logging.Options{Level: cfg.Log.Level, Format: cfg.Log.Format})
+
+		// 默认 logger 写 stderr；如果指定了 --log-file（或者 console detached 后 stderr 不可用），
+		// 改写到指定文件，让 Windows VBS 启动 / Tauri spawn 场景仍能看到日志。
+		var logger = logging.New(logging.Options{Level: cfg.Log.Level, Format: cfg.Log.Format})
+		if logFile != "" {
+			if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
+				return fmt.Errorf("创建 log 目录: %w", err)
+			}
+			lf, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+			if err != nil {
+				return fmt.Errorf("打开 log 文件 %s: %w", logFile, err)
+			}
+			defer lf.Close()
+			logger = logging.NewTo(lf, logging.Options{Level: cfg.Log.Level, Format: cfg.Log.Format})
+		}
 
 		// 写 pidfile：用 atomic rename，避免 reader 读到半行。
 		// 写之前先 preempt：若 pidfile 里指向一个活的 omlctl 进程，先把它 SIGTERM 掉再写。
