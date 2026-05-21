@@ -152,6 +152,21 @@ jobs:
               subprocess.check_call(['go', 'build', '-o', out, './cmd/omlctl'], env=env)
           PY
           rm -f _go_targets.json
+          # macOS universal build：tauri.conf.json 声明的 sidecar 是 `binaries/omlctl`，
+          # Tauri bundler 会按 --target 追加 triple 后缀去查找。`universal-apple-darwin`
+          # 不是 rustup 真实 target，但 Tauri 仍然按 `omlctl-universal-apple-darwin` 找
+          # sidecar。我们 cross-compile 只产 x86_64 + aarch64 两个独立二进制，
+          # 这里用 lipo 把它们合成 fat binary，命名为 universal 即可被 bundler 找到。
+          if [[ "${{ matrix.tauri-target }}" == "universal-apple-darwin" ]]; then
+            BIN_DIR=tauri/src-tauri/binaries
+            lipo -create \
+              "$BIN_DIR/omlctl-x86_64-apple-darwin" \
+              "$BIN_DIR/omlctl-aarch64-apple-darwin" \
+              -output "$BIN_DIR/omlctl-universal-apple-darwin"
+            chmod +x "$BIN_DIR/omlctl-universal-apple-darwin"
+            echo "==> lipo'd universal:"
+            file "$BIN_DIR/omlctl-universal-apple-darwin"
+          fi
           ls -la tauri/src-tauri/binaries/
 
       - name: cargo install tauri-cli (cached)
