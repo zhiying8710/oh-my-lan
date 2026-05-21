@@ -13,41 +13,76 @@ on:
 permissions:
   contents: write   # 用来创建 GitHub Release 上传产物
 
+env:
+  # 同一份 ldflags 让所有 job 写进版本号；tag push 时取 ref_name，手动跑时取 input
+  VERSION: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
   # ──────────────────────────────────────────────────────
-  # 服务端：linux/amd64 静态二进制 + linux/arm64
+  # CLI 工具集：omlserver + omlctl 跨平台静态二进制。
+  # 覆盖：Linux amd64/arm64（VPS + 树莓派），Windows amd64，macOS amd64/arm64。
+  # Linux 只发 CLI 不发桌面——用户明确要求。
   # ──────────────────────────────────────────────────────
-  server:
-    name: omlserver (${{ matrix.goarch }})
+  cli:
+    name: CLI ${{ matrix.label }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        goarch: [amd64, arm64]
+        include:
+          - label: linux-amd64
+            goos: linux
+            goarch: amd64
+            ext: ""
+          - label: linux-arm64
+            goos: linux
+            goarch: arm64
+            ext: ""
+          - label: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            ext: ""
+          - label: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            ext: ""
+          - label: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: ".exe"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
           cache: true
-      - name: Build omlserver
+      - name: Build omlserver + omlctl
         env:
-          GOOS: linux
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: |
-          mkdir -p dist
-          go build -ldflags "-X github.com/zhiying8710/oh-my-lan/internal/version.Version=${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}" \
-            -o dist/omlserver-linux-${{ matrix.goarch }} ./cmd/omlserver
-          ( cd dist && tar -czf omlserver-linux-${{ matrix.goarch }}.tar.gz omlserver-linux-${{ matrix.goarch }} )
+          mkdir -p dist staging
+          LDFLAGS="-X github.com/zhiying8710/oh-my-lan/internal/version.Version=${VERSION}"
+          go build -ldflags "$LDFLAGS" -o staging/omlserver${{ matrix.ext }} ./cmd/omlserver
+          go build -ldflags "$LDFLAGS" -o staging/omlctl${{ matrix.ext }}   ./cmd/omlctl
+          # Windows 习惯 .zip，Unix 用 .tar.gz——按平台打包让用户解压简单
+          if [[ "${{ matrix.goos }}" == "windows" ]]; then
+            ( cd staging && zip -9 "../dist/oh-my-lan-cli-${VERSION}-${{ matrix.label }}.zip" \
+                omlserver.exe omlctl.exe )
+          else
+            ( cd staging && tar -czf "../dist/oh-my-lan-cli-${VERSION}-${{ matrix.label }}.tar.gz" \
+                omlserver omlctl )
+          fi
+          ls -la dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: omlserver-linux-${{ matrix.goarch }}
-          path: dist/omlserver-linux-${{ matrix.goarch }}.tar.gz
+          name: cli-${{ matrix.label }}
+          path: dist/*
 
   # ──────────────────────────────────────────────────────
-  # 桌面客户端：macOS (universal2) + Windows (x86_64) + Linux AppImage
-  # 关键点：先用 Go 把 omlctl cross-compile 出来作为 sidecar，再 cargo tauri build
+  # 桌面客户端：仅 macOS (universal DMG) + Windows (NSIS/MSI installer)。
+  # Linux 不发桌面——用户用 omlctl + omlserver CLI 即可。
   # ──────────────────────────────────────────────────────
   desktop:
     name: Desktop ${{ matrix.label }}
@@ -58,72 +93,67 @@ jobs:
         include:
           - label: macOS (universal)
             os: macos-latest
-            rust-target: universal-apple-darwin
-            tauri-args: --target universal-apple-darwin --bundles dmg
-            go-targets:
-              - { os: darwin, arch: arm64, triple: aarch64-apple-darwin }
-              - { os: darwin, arch: amd64, triple: x86_64-apple-darwin }
+            # universal-apple-darwin 是 cargo-tauri 的虚拟 "fat binary" 目标，不是 rustup 真实 target。
+            # 给 rustup 装两个真实 target，cargo-tauri build --target universal-apple-darwin 会自动 lipo。
+            rust-targets: x86_64-apple-darwin,aarch64-apple-darwin
+            tauri-target: universal-apple-darwin
+            tauri-bundles: dmg
+            go-targets: |
+              [
+                {"os":"darwin","arch":"arm64","triple":"aarch64-apple-darwin","ext":""},
+                {"os":"darwin","arch":"amd64","triple":"x86_64-apple-darwin","ext":""}
+              ]
           - label: Windows (x86_64)
             os: windows-latest
-            rust-target: x86_64-pc-windows-msvc
-            tauri-args: --target x86_64-pc-windows-msvc --bundles nsis,msi
-            go-targets:
-              - { os: windows, arch: amd64, triple: x86_64-pc-windows-msvc }
-          - label: Linux (x86_64)
-            os: ubuntu-latest
-            rust-target: x86_64-unknown-linux-gnu
-            tauri-args: --target x86_64-unknown-linux-gnu --bundles appimage,deb
-            go-targets:
-              - { os: linux, arch: amd64, triple: x86_64-unknown-linux-gnu }
+            rust-targets: x86_64-pc-windows-msvc
+            tauri-target: x86_64-pc-windows-msvc
+            tauri-bundles: nsis,msi
+            go-targets: |
+              [
+                {"os":"windows","arch":"amd64","triple":"x86_64-pc-windows-msvc","ext":".exe"}
+              ]
 
     steps:
       - uses: actions/checkout@v4
 
-      # Go toolchain
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
           cache: true
 
-      # Rust toolchain
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.rust-target }}
+          targets: ${{ matrix.rust-targets }}
 
-      # Linux 系统依赖（Tauri 2.x AppImage 需要 webkit2gtk-4.1）
-      - name: Linux deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
-            libayatana-appindicator3-dev librsvg2-dev
-
-      # 构建 sidecar omlctl（每个目标 triple 一份）
+      # Build sidecar omlctl(s)。每平台至少一份，macOS 两份让 cargo-tauri 自己 lipo 进 universal.
+      # 历史教训：上一版用 cat <<EOF > /tmp/targets.json 然后 python on Windows 读不到
+      # （git-bash 的 /tmp 是 MSYS2 映射，Python 不知道）。这一版把 JSON 写在仓库内相对路径，
+      # 跨 shell / 跨 Python 解释器都能正确解析。
       - name: Build omlctl sidecars
         shell: bash
         run: |
           mkdir -p tauri/src-tauri/binaries
-          # 用 JSON 的方式喂 matrix 给 shell；这里手动跳过 PowerShell 兼容性
-          cat <<'EOF' > /tmp/targets.json
-          ${{ toJson(matrix.go-targets) }}
-          EOF
-          python - <<'PY'
-          import json, os, subprocess, sys
-          with open('/tmp/targets.json') as f:
+          # toJson + shell heredoc 写入仓库根的临时文件，避开 /tmp 跨平台坑
+          cat > _go_targets.json <<'JSON_EOF'
+          ${{ matrix.go-targets }}
+          JSON_EOF
+          cat _go_targets.json
+          python <<'PY'
+          import json, os, subprocess
+          with open('_go_targets.json') as f:
               targets = json.load(f)
           for t in targets:
               env = os.environ.copy()
               env['GOOS'] = t['os']
               env['GOARCH'] = t['arch']
               env['CGO_ENABLED'] = '0'
-              ext = '.exe' if t['os'] == 'windows' else ''
-              out = f"tauri/src-tauri/binaries/omlctl-{t['triple']}{ext}"
+              out = f"tauri/src-tauri/binaries/omlctl-{t['triple']}{t['ext']}"
               print(f"==> {out}")
               subprocess.check_call(['go', 'build', '-o', out, './cmd/omlctl'], env=env)
           PY
+          rm -f _go_targets.json
+          ls -la tauri/src-tauri/binaries/
 
-      # cargo tauri build
       - name: cargo install tauri-cli (cached)
         run: cargo install --locked tauri-cli --version '^2' || true
 
@@ -134,21 +164,22 @@ jobs:
           cp internal/server/web/index.html internal/server/web/style.css internal/server/web/app.js \
              internal/server/web/favicon.svg internal/server/web/favicon-32.png tauri/dist/
 
-      - name: cargo tauri build (.app on macOS, full on others)
+      - name: cargo tauri build
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            # 先只 bundle .app，留出注入 ATS 的窗口
-            cd tauri/src-tauri && cargo tauri build --bundles app ${{ matrix.tauri-args }}
+            # macOS：先只 bundle .app，给注入 ATS 留窗口；DMG 之后单独打
+            cd tauri/src-tauri && cargo tauri build \
+              --target ${{ matrix.tauri-target }} --bundles app
           else
-            cd tauri/src-tauri && cargo tauri build ${{ matrix.tauri-args }}
+            cd tauri/src-tauri && cargo tauri build \
+              --target ${{ matrix.tauri-target }} --bundles ${{ matrix.tauri-bundles }}
           fi
 
       - name: Inject ATS exception + repack DMG (macOS only)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          # 找出所有 build 出来的 .app（universal2 build 也只一个）
           for app in $(find tauri/src-tauri/target -name 'oh-my-lan.app' -path '*/bundle/macos/*'); do
             ./tauri/scripts/inject-ats.sh "$app"
             stage=$(mktemp -d)
@@ -157,10 +188,15 @@ jobs:
             [ -z "$triple" ] && triple="universal"
             out_dir="$(dirname "$(dirname "$app")")/dmg"
             mkdir -p "$out_dir"
-            out_dmg="$out_dir/oh-my-lan_0.1.0_${triple}.dmg"
+            out_dmg="$out_dir/oh-my-lan_${VERSION}_${triple}.dmg"
             rm -f "$out_dmg"
-            # bundle_dmg.sh 是 Tauri 内置的，build 后留在 dmg 目录
+            # 首次跑 cargo tauri build 没产 bundle_dmg.sh；先单独触发 --bundles dmg
             script=$(find tauri/src-tauri/target -name 'bundle_dmg.sh' -path '*/bundle/dmg/*' | head -1)
+            if [[ -z "$script" ]]; then
+              echo "  (首次：拉 bundle_dmg.sh)"
+              (cd tauri/src-tauri && cargo tauri build --target ${{ matrix.tauri-target }} --bundles dmg) || true
+              script=$(find tauri/src-tauri/target -name 'bundle_dmg.sh' -path '*/bundle/dmg/*' | head -1)
+            fi
             bash "$script" \
               --volname "oh-my-lan" \
               --icon "oh-my-lan.app" 180 170 \
@@ -174,15 +210,12 @@ jobs:
             echo "✓ $out_dmg"
           done
 
-      # 收集产物
       - name: Collect bundles
         shell: bash
         run: |
           mkdir -p dist
-          # Tauri 把 bundle 放到 target/<triple>/release/bundle/<format>/
           find tauri/src-tauri/target -path '*/release/bundle/*' \
-            \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \
-               -o -name '*.AppImage' -o -name '*.deb' \) \
+            \( -name '*.dmg' -o -name '*.msi' -o -name '*-setup.exe' \) \
             -exec cp -v {} dist/ \;
           ls -la dist/
 
@@ -195,7 +228,7 @@ jobs:
   # 汇总：把所有产物附到 GitHub Release
   # ──────────────────────────────────────────────────────
   release:
-    needs: [server, desktop]
+    needs: [cli, desktop]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:

@@ -69,9 +69,13 @@ curl -H "Authorization: Bearer oat_xxx..." http://server:8080/api/admin/metrics
 ```
 所有 admin 端点同时接受 session token 与 admin token，行为完全一致。
 
-### Tauri 桌面客户端（可选）
+### Tauri 桌面客户端（macOS / Windows）
 
-如果你希望在桌面有一个独立窗口管理服务（而不是开浏览器），可以构建 Tauri 壳：
+GitHub Release 提供 macOS `.dmg`（universal binary：Apple Silicon + Intel）与 Windows `.msi` / `-setup.exe`。
+**Linux 不发桌面包**——直接用 `omlctl` 命令行管理本机 daemon 即可（覆盖桌面客户端「本机」tab 的全部功能；
+`omlctl daemon start --pid-file ...` 配合 systemd user unit 可达到与桌面 "开机自启" 等效行为）。
+
+需要从源码构建（任何 OS 都行，但只有 macOS / Windows 是官方发布平台）：
 
 ```bash
 # 一次性安装 Tauri CLI（仅打包时需要）
@@ -80,7 +84,7 @@ cargo install tauri-cli --version '^2'
 # 开发运行（dev 模式）
 make tauri-dev
 
-# 打包成 .app / .exe / AppImage
+# 打包成 .app / .exe
 make tauri-build
 # 产物在 tauri/src-tauri/target/release/bundle/
 ```
