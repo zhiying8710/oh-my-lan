@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -524,7 +523,10 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 }
 
 // preemptOldDaemon 在新 daemon 写 pidfile 前，先把 pidfile 中那个活着的 omlctl 进程接管掉。
-// 安全约束：用 ps 验证目标进程命令行里出现 "omlctl"，避免 pid 复用时误杀其它进程。
+// 跨平台：Unix 走 SIGTERM→等→SIGKILL，Windows 走 TerminateProcess（无"软退出"概念）。
+// 实际的 syscall 抽象在 kill_unix.go / kill_windows.go。
+//
+// 安全约束：先用 processLooksLikeOmlctl 验证目标进程像 omlctl，避免 pid 复用时误杀。
 func preemptOldDaemon(pidFile string, logger *slog.Logger) {
 	raw, err := os.ReadFile(pidFile)
 	if err != nil {
@@ -534,101 +536,55 @@ func preemptOldDaemon(pidFile string, logger *slog.Logger) {
 	if err != nil || oldPid <= 0 || oldPid == os.Getpid() {
 		return
 	}
-	if !processIsAlive(oldPid) {
+	if !isProcessAlive(oldPid) {
 		return
 	}
 	if !processLooksLikeOmlctl(oldPid) {
 		logger.Warn("pidfile 中的 pid 不像 omlctl，跳过抢占以免误杀", "pid", oldPid)
 		return
 	}
-	logger.Warn("发现旧 omlctl daemon，发送 SIGTERM 接管", "pid", oldPid)
+	logger.Warn("发现旧 omlctl daemon，发送终止信号接管", "pid", oldPid)
 	if !sigTermAndWait(oldPid, 5*time.Second) {
-		logger.Warn("旧 daemon SIGTERM 5s 未生效，SIGKILL", "pid", oldPid)
-		_ = syscall.Kill(oldPid, syscall.SIGKILL)
+		logger.Warn("旧 daemon 5s 未退出，强制 kill", "pid", oldPid)
+		_ = sendKill(oldPid)
 		time.Sleep(200 * time.Millisecond)
 	}
 }
 
-func processIsAlive(pid int) bool {
-	// signal=0 不发信号，仅做权限+存活检测
-	err := syscall.Kill(pid, syscall.Signal(0))
-	if err == nil {
-		return true
-	}
-	// EPERM = 存在但无权限；ESRCH = 不存在
-	return errors.Is(err, syscall.EPERM)
-}
-
-// 用 ps 看进程命令行里是否包含 "omlctl"。失败回退到 false（保守，宁可不杀也别误杀）。
-func processLooksLikeOmlctl(pid int) bool {
-	// `ps -p PID -o command=` 在 macOS / Linux 都支持
-	out, err := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "command=").Output()
-	if err != nil {
-		return false
-	}
-	return strings.Contains(strings.ToLower(string(out)), "omlctl")
-}
-
-// sigTermAndWait 向 pid 发 SIGTERM，等待 timeout 期间反复检查是否退出。
-// 返回 true 表示 timeout 内已退出。不返回 SIGKILL 后的结果，让调用方按需升级。
+// sigTermAndWait 向 pid 发软终止信号，等待 timeout 期间反复检查是否退出。
+// 返回 true 表示 timeout 内已退出。不在这里升级 SIGKILL，让调用方按需决定。
 func sigTermAndWait(pid int, timeout time.Duration) bool {
-	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-		return !processIsAlive(pid)
+	if err := sendTerm(pid); err != nil {
+		return !isProcessAlive(pid)
 	}
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
-		if !processIsAlive(pid) {
+		if !isProcessAlive(pid) {
 			return true
 		}
 	}
 	return false
 }
 
-// killOmlctlByConfig 通过 ps 扫描所有进程，命令行包含 `omlctl` 和给定 config 路径
-// 的全部 SIGTERM 掉。**自身 pid 排除在外**。返回命中并尝试 kill 的数量。
+// killOmlctlByConfig 调用平台特定的 ps-scan（Unix）/ 空实现（Windows）拿到候选 pid，
+// 然后 SIGTERM 并并行等 3s SIGKILL 升级。返回命中数。
 //
-// 实现要点：先把所有命中的 pid 收齐并 SIGTERM，再用 WaitGroup 并行等 SIGKILL 升级。
-// 历史教训：一开始 SIGKILL 升级放在裸 goroutine 里，main 不等就 return，omlctl 进程退出
-// 把 goroutine 也带走，结果 SIGKILL 永远不发——hang 在 chisel client 的 omlctl 不会被清掉。
+// 历史教训：一开始 SIGKILL 升级放在裸 goroutine 里、main 不等就 return，
+// omlctl 进程退出把 goroutine 也带走，hang 住的 omlctl 不会被清掉。改用 WaitGroup。
 func killOmlctlByConfig(configPath string) int {
 	abs, err := filepath.Abs(configPath)
 	if err != nil {
 		abs = configPath
 	}
-	out, err := exec.Command("ps", "-eo", "pid,command").Output()
-	if err != nil {
-		return 0
-	}
 	self := os.Getpid()
-	var pids []int
-	for _, line := range strings.Split(string(out), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		pid, err := strconv.Atoi(fields[0])
-		if err != nil || pid == self || pid <= 1 {
-			continue
-		}
-		cmd := strings.Join(fields[1:], " ")
-		if !strings.Contains(cmd, "omlctl") || !strings.Contains(cmd, "daemon start") {
-			continue
-		}
-		if !strings.Contains(cmd, abs) && !strings.Contains(cmd, configPath) {
-			continue
-		}
-		_ = syscall.Kill(pid, syscall.SIGTERM)
-		pids = append(pids, pid)
-	}
+	pids := psScanOmlctlByConfig(configPath, abs, self)
 	if len(pids) == 0 {
 		return 0
 	}
-	// 并行等待 + 必要时 SIGKILL；main 阻塞到所有都处理完
+	for _, pid := range pids {
+		_ = sendTerm(pid)
+	}
 	var wg sync.WaitGroup
 	for _, pid := range pids {
 		wg.Add(1)
@@ -636,12 +592,12 @@ func killOmlctlByConfig(configPath string) int {
 			defer wg.Done()
 			deadline := time.Now().Add(3 * time.Second)
 			for time.Now().Before(deadline) {
-				if !processIsAlive(p) {
+				if !isProcessAlive(p) {
 					return
 				}
 				time.Sleep(100 * time.Millisecond)
 			}
-			_ = syscall.Kill(p, syscall.SIGKILL)
+			_ = sendKill(p)
 		}(pid)
 	}
 	wg.Wait()
