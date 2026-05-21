@@ -337,6 +337,47 @@ fn daemon_is_enrolled(
     Ok(status.success())
 }
 
+#[derive(serde::Serialize, Debug)]
+struct LocalDevice {
+    id: String,
+    name: String,
+}
+
+/// 读 `<config-parent>/data/state.json`，返回本机注册到服务端时拿到的 device_id / device_name。
+/// 用途：Tauri 桌面端的"发布服务"/"添加 forward"对话框需要把 owner 锁死成本机，
+/// 这样前端就不必通过 admin API 去比对设备列表。未注册 / state 缺失 → 返回 None。
+///
+/// state.json 字段格式见 `internal/client/state.go::State`，关键字段 `device_id` / `device_name`
+/// 是字符串。文件由 omlctl enroll 写入，权限 0o600，跟 yaml 同一目录的 `data/` 下。
+#[tauri::command]
+fn daemon_local_device(
+    _ctl_path: Option<String>,
+    config_path: Option<String>,
+) -> Result<Option<LocalDevice>, String> {
+    let resolved_cfg = match config_path.as_deref() {
+        Some(s) if !s.trim().is_empty() => std::path::PathBuf::from(s.trim()),
+        _ => default_client_config_path()?,
+    };
+    let parent = match resolved_cfg.parent() {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let state_path = parent.join("data").join("state.json");
+    if !state_path.exists() {
+        return Ok(None);
+    }
+    let raw = std::fs::read_to_string(&state_path)
+        .map_err(|e| format!("读 state {state_path:?}: {e}"))?;
+    let v: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("解析 state: {e}"))?;
+    let id = v.get("device_id").and_then(|x| x.as_str()).map(|s| s.to_string());
+    let name = v.get("device_name").and_then(|x| x.as_str()).map(|s| s.to_string());
+    match (id, name) {
+        (Some(id), Some(name)) => Ok(Some(LocalDevice { id, name })),
+        _ => Ok(None),
+    }
+}
+
 /// 同步运行 `omlctl enroll`，把 stderr 捕获并在失败时回显给前端。
 /// 完成后返回 stdout（包含 "注册成功：device_id=... name=..." 之类的成功消息）。
 #[tauri::command]
@@ -412,6 +453,7 @@ pub fn run() {
             daemon_status,
             daemon_kill_all,
             daemon_is_enrolled,
+            daemon_local_device,
             daemon_enroll,
             autostart_status,
             autostart_enable,

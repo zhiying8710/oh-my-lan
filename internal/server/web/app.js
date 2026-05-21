@@ -11,6 +11,27 @@ const ACTIVE_TAB_KEY = 'oml-admin-active-tab';
 const CTL_PATH_KEY = 'oml-ctl-path';
 const CTL_CONFIG_KEY = 'oml-ctl-config';
 
+// 桌面客户端注册后从 state.json 拿到的本机身份，用来在「发布服务 / 添加 forward」
+// 对话框里把 owner 锁成本机、并把 forward 的目标服务排除本机。
+// 浏览器同源模式下 localDevice === null，对话框保留全部设备/服务（admin 视角）。
+let localDevice = null; // { id: string, name: string } | null
+
+// Tauri 环境下按需懒拉本机身份。每次调用会优先用 cache；cache 失效（未注册或读失败）
+// 时再去 Rust 那边拉。失败回退到 null——对话框退化到 "可选全部设备"，行为与浏览器一致。
+async function ensureLocalDevice() {
+  if (!inTauri) return null;
+  if (localDevice && localDevice.id) return localDevice;
+  try {
+    const ctlPath = els.ctlPathInput.value.trim();
+    const configPath = els.ctlConfigInput.value.trim();
+    localDevice = await tauriCmd('daemon_local_device', { ctlPath, configPath });
+  } catch (e) {
+    console.warn('daemon_local_device 失败:', e);
+    localDevice = null;
+  }
+  return localDevice;
+}
+
 // Tauri 2.x 自身会注入只读 `window.isTauri`（boolean）—— 不能用 `isTauri` 当变量名
 // 否则触发 "Can't create duplicate variable that shadows a global property"。
 // 这里用 `inTauri`，并把 window.isTauri 作为最直接的探测信号。
@@ -410,40 +431,80 @@ async function handleRowAction(action, data) {
 // --- Modals ---
 
 async function openServiceModal() {
-  const data = await api('/api/admin/devices');
+  // 与 admin API 拿全设备列表并行去拉本机身份（Tauri 才有；浏览器返回 null）
+  const [data, local] = await Promise.all([
+    api('/api/admin/devices'),
+    ensureLocalDevice(),
+  ]);
   const sel = els.serviceForm.elements['device_id'];
   sel.innerHTML = '';
-  (data.devices || []).forEach(d => {
+
+  // 桌面客户端只能为本机发布服务；浏览器视角（admin）保留全部
+  let candidates = data.devices || [];
+  if (local && local.id) {
+    candidates = candidates.filter(d => d.id === local.id);
+  }
+  candidates.forEach(d => {
     const opt = document.createElement('option');
     opt.value = d.id;
     opt.textContent = `${d.name} (${d.id.slice(0, 8)}…)`;
     sel.appendChild(opt);
   });
+  // 单选项已经天然防误选，不用 disabled——disabled select 会被 FormData 跳过
+  // 导致 submit 时 device_id 缺失
   els.serviceForm.reset();
   els.serviceModal.showModal();
 }
 
 async function openForwardModal() {
-  const [devs, svcs] = await Promise.all([
+  // 三路并发：设备列表、服务列表、本机身份
+  const [devs, svcs, local] = await Promise.all([
     api('/api/admin/devices'),
     api('/api/admin/services'),
+    ensureLocalDevice(),
   ]);
   const devSel = els.forwardForm.elements['owner_device_id'];
   devSel.innerHTML = '';
-  (devs.devices || []).forEach(d => {
+
+  // 桌面客户端：owner 锁死本机（forward 是"本机映射别人服务到本机端口"的语义）
+  let ownerCandidates = devs.devices || [];
+  if (local && local.id) {
+    ownerCandidates = ownerCandidates.filter(d => d.id === local.id);
+  }
+  ownerCandidates.forEach(d => {
     const opt = document.createElement('option');
     opt.value = d.id;
     opt.textContent = `${d.name}`;
     devSel.appendChild(opt);
   });
+  // 同 service：单选项即天然锁定，不用 disabled（会让 FormData 跳过）
+
   const svcSel = els.forwardForm.elements['remote_service_id'];
   svcSel.innerHTML = '';
-  (svcs.services || []).filter(s => s.enabled).forEach(s => {
+  // 桌面客户端：目标服务必须排除本机服务（"forward 到自己" 语义无意义且会撞端口）
+  let svcCandidates = (svcs.services || []).filter(s => s.enabled);
+  if (local && local.id) {
+    svcCandidates = svcCandidates.filter(s => s.device_id !== local.id);
+  }
+  svcCandidates.forEach(s => {
     const opt = document.createElement('option');
     opt.value = s.id;
     opt.textContent = `${s.device_name}/${s.name} (${s.protocol} :${s.public_port})`;
     svcSel.appendChild(opt);
   });
+
+  // 候选服务为空时给出明确提示，不然用户面对空下拉框会困惑
+  if (svcCandidates.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.disabled = true;
+    opt.selected = true;
+    opt.textContent = local && local.id
+      ? '（没有可 forward 的远端服务——其它设备尚未发布服务）'
+      : '（没有已启用的服务）';
+    svcSel.appendChild(opt);
+  }
+
   els.forwardForm.reset();
   els.forwardModal.showModal();
 }
@@ -527,8 +588,11 @@ async function refreshLocalTab() {
   }
 
   if (!enrolled) {
+    localDevice = null; // 取消任何之前缓存的身份——未注册=没本机身份
     showEnrollCard();
   } else {
+    // 已注册：warming the cache 让后续 openServiceModal / openForwardModal 不必再去 await
+    ensureLocalDevice().catch(() => {});
     showDaemonCard();
     await refreshDaemonStatus();
   }
