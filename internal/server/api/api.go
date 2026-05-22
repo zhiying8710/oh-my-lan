@@ -69,7 +69,10 @@ func MethodOnly(method string, h http.HandlerFunc) http.HandlerFunc {
 func WithCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		// PUT 必须列出——/api/admin/bark 用 PUT。历史教训：早期只写 GET/POST/DELETE/OPTIONS，
+		// Tauri webview 跨源调 PUT 触发预检，server 没声明 PUT → 浏览器直接 reject 实际请求，
+		// fetch 抛 "Load failed"（看起来像网络错误，实际是 CORS 预检失败）。PATCH 同理预留。
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 		w.Header().Set("Access-Control-Max-Age", "600")
 		if r.Method == http.MethodOptions {

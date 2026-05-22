@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +84,21 @@ func TestWithCORS_PassthroughAddsHeaders(t *testing.T) {
 	}
 	if rr.Header().Get("Access-Control-Allow-Methods") == "" {
 		t.Errorf("缺少 Allow-Methods 头")
+	}
+}
+
+// TestWithCORS_AllowsAllUsedMethods 防回归：所有 server 端用到的 HTTP 方法都必须在
+// Allow-Methods 里。历史教训：早期漏 PUT，Tauri webview PUT /api/admin/bark 预检失败 →
+// fetch "Load failed"，bark 配置改不了。
+func TestWithCORS_AllowsAllUsedMethods(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodOptions, "/api/admin/bark", nil)
+	WithCORS(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})).ServeHTTP(rr, req)
+
+	methods := rr.Header().Get("Access-Control-Allow-Methods")
+	for _, want := range []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"} {
+		if !strings.Contains(methods, want) {
+			t.Errorf("Allow-Methods 缺 %s：%q", want, methods)
+		}
 	}
 }
