@@ -44,7 +44,6 @@ const els = {
   serverInfo: document.getElementById('server-info'),
   refreshBtn: document.getElementById('refresh-btn'),
   logoutBtn: document.getElementById('logout-btn'),
-  issueTokenBtn: document.getElementById('issue-token-btn'),
   devicesIssueTokenBtn: document.getElementById('devices-issue-token-btn'),
   serverConfigView: document.getElementById('server-config-view'),
   serverConfigForm: document.getElementById('server-config-form'),
@@ -930,7 +929,6 @@ function hideAllViews() {
   els.mainView.hidden = true;
   els.refreshBtn.hidden = true;
   els.logoutBtn.hidden = true;
-  els.issueTokenBtn.hidden = true;
   els.serverInfo.textContent = '';
 }
 
@@ -960,7 +958,6 @@ function showMain() {
   els.mainView.hidden = false;
   els.refreshBtn.hidden = false;
   els.logoutBtn.hidden = false;
-  els.issueTokenBtn.hidden = false;
   if (inTauri) {
     document.querySelector('.tab-tauri').hidden = false;
     // 恢复本机 daemon 控制的输入项
@@ -1040,8 +1037,7 @@ els.logoutBtn.addEventListener('click', async () => {
     setToken('');
     showLogin();
 });
-els.issueTokenBtn.addEventListener('click', issueToken);
-// devices tab 的主操作入口，与 header 按钮指向同一行为
+// 「+ 生成 enrollment token」唯一入口在「设备」tab，与「+ 发布服务」「+ 添加 forward」对齐
 if (els.devicesIssueTokenBtn) els.devicesIssueTokenBtn.addEventListener('click', issueToken);
 els.serviceAddBtn.addEventListener('click', () =>
   openServiceModal().catch(e => showAlert(e.message, { title: '打开失败', kind: 'error' })));
