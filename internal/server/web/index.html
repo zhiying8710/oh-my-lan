@@ -114,7 +114,11 @@
           每次离线只推一次，回到在线后重置。
         </p>
         <form id="bark-form" class="bark-form">
-          <label class="bark-row">
+          <!-- toggle 单独一行 + 左对齐，不和下面的 bark-row 共用 110px 标签列；
+               历史教训：checkbox 也用 .bark-row 时，".bark-row > span" 的 flex:0 0 110px 把
+               "启用 bark 推送" 文本挤到很远（虽然有 +span 覆盖 flex:none，浏览器仍然按 span
+               的 110px shrink-basis 计算 → checkbox 漂在表单中央）。改用 .bark-toggle 单独样式。 -->
+          <label class="bark-toggle">
             <input id="bark-enabled" type="checkbox">
             <span>启用 bark 推送</span>
           </label>

@@ -195,7 +195,25 @@ button[disabled]:hover {
 .bark-row > span { flex: 0 0 110px; }
 .bark-row > input[type="text"],
 .bark-row > input[type="number"] { flex: 1; }
-.bark-row > input[type="checkbox"] + span { flex: none; color: var(--fg); }
+
+/* "启用 bark 推送" toggle 行：和下面的 URL/阈值 不共用 110px 标签列，
+   checkbox 紧贴 label 左对齐，整行 cursor: pointer 让用户知道点哪都能切。 */
+.bark-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--fg);
+  cursor: pointer;
+  user-select: none;
+}
+.bark-toggle > input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+}
 
 /* 「服务端」tab 内的审计折叠区——审计原来是顶层 tab，降级到这里作为可折叠子区，
    释放一个顶层 nav slot 给未来扩展（流量/日志/网络）。
