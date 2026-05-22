@@ -100,7 +100,14 @@ web-lint:
 		echo "$$hits"; \
 		exit 1; \
 	fi; \
-	echo "[web-lint] ✓ DOM id / 全局名冲突 / 原生 confirm-alert 检查通过 ($$(echo $$JS_FILES | wc -w | tr -d ' ') 个 JS 文件)"
+	void_hits=$$(grep -nE "^\s*void [a-zA-Z_]" $$JS_FILES || true); \
+	if [ -n "$$void_hits" ]; then \
+		echo "[web-lint] 发现 \`void <identifier>;\` 孤立语句——历史教训：开发时为'保留 import'"; \
+		echo "  写的 void 占位，后来真删 import 却忘删 void 语句 → ReferenceError 在浏览器爆炸："; \
+		echo "$$void_hits"; \
+		exit 1; \
+	fi; \
+	echo "[web-lint] ✓ DOM id / 全局名冲突 / 原生 confirm-alert / 孤立 void 检查通过 ($$(echo $$JS_FILES | wc -w | tr -d ' ') 个 JS 文件)"
 
 test: web-lint
 

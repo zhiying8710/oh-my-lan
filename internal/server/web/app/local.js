@@ -345,6 +345,3 @@ export async function stopDaemon() {
   }
 }
 
-// escapeHTML 此处用不上，但保留 import 以保持模块对外 surface 一致——
-// 若将来 daemonMsg 需要嵌结构化错误，可以直接拼 HTML。当前直接走 textContent。
-void escapeHTML;
