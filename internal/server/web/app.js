@@ -632,16 +632,19 @@ async function refreshDaemonStatus() {
   els.daemonStatusBadge.className = 'status-badge';
   const ctlPath = els.ctlPathInput.value.trim();
   const configPath = els.ctlConfigInput.value.trim();
+  let running = false;
   try {
     const s = await tauriCmd('daemon_status', { ctlPath, configPath });
     setDaemonBadge(s.running, s.pid);
+    running = !!(s && s.running);
     els.daemonMsg.textContent = '';
   } catch (e) {
     els.daemonMsg.textContent = '查询失败: ' + e;
     setDaemonBadge(false);
   }
-  // status 拿到后，根据 autostart 状态再覆盖按钮可用性
-  await refreshAutostart();
+  // status 拿到后，把 daemon running 状态喂给 autostart UI 决策，
+  // 让"autostart enabled + daemon 不在跑"场景下 start 按钮可点
+  await refreshAutostart(running);
 }
 
 // 在登录态下调服务端 issue token，把结果写入注册表单的 token 输入框。
@@ -658,8 +661,9 @@ async function generateEnrollToken() {
   }
 }
 
-// 把当前自启状态映射到三件 UI 上：状态徽章、开启按钮、关闭按钮
-function applyAutostartUI({ supported, enabled }) {
+// 把当前自启状态映射到三件 UI 上：状态徽章、开启按钮、关闭按钮、daemon 启停按钮可用性。
+// daemonRunning 必填——决定"autostart 开启 + daemon 是否真在跑"两种子状态下的按钮锁。
+function applyAutostartUI({ supported, enabled }, daemonRunning) {
   if (!supported) {
     els.autostartState.textContent = '不支持';
     els.autostartState.className = 'status-badge';
@@ -673,23 +677,48 @@ function applyAutostartUI({ supported, enabled }) {
     els.autostartState.className = 'status-badge status-online';
     els.autostartEnableBtn.disabled = true;   // 已是 enabled 状态，不能再开启
     els.autostartDisableBtn.disabled = false;
-    els.autostartMsg.textContent = 'daemon 由系统管理（launchd/systemd/VBS），UI 启停按钮已锁定';
-    // autostart 开启时锁掉手动 start/stop——避免和 launchd/systemd 抢
-    els.daemonStartBtn.disabled = true;
-    els.daemonStopBtn.disabled = true;
+
+    if (daemonRunning) {
+      // 系统在管 + daemon 真跑着——锁掉手动按钮避免和 launchd/systemd/VBS 抢
+      els.daemonStartBtn.disabled = true;
+      els.daemonStopBtn.disabled = true;
+      els.autostartMsg.textContent = 'daemon 由系统管理（launchd / systemd / VBS），UI 启停按钮已锁定';
+    } else {
+      // 自启开了但 daemon 不在跑：可能被外部杀死，或 launchd/VBS 还没拉起，
+      // 或 Windows VBS 单次启动模型（不像 launchd 有 KeepAlive）daemon 崩了不会自动恢复。
+      // 允许用户手动「启动 daemon」兜底，停止按钮仍然锁（没运行的进程没法停）。
+      els.daemonStartBtn.disabled = false;
+      els.daemonStopBtn.disabled = true;
+      els.autostartMsg.textContent =
+        '⚠ 自启已开启但 daemon 当前未运行——可能被外部杀死或自启拉起器尚未触发。点「启动 daemon」可手动恢复';
+    }
   } else {
     els.autostartState.textContent = '未开启';
     els.autostartState.className = 'status-badge status-offline';
     els.autostartEnableBtn.disabled = false;
     els.autostartDisableBtn.disabled = true;  // 已是 disabled 状态，无需关闭
     els.autostartMsg.textContent = '';
+    // autostart 关闭时不动 start/stop 按钮——已由 setDaemonBadge 按 daemon 实际状态设置过
   }
 }
 
-async function refreshAutostart() {
+// daemonRunning 可省略：autostart enable/disable 按钮的回调里没有当前 daemon 状态上下文，
+// 这种情况下会自己查一遍 daemon_status 拿状态。refreshDaemonStatus 路径走过来时已经知道，
+// 显式传进来避免重复 IPC。
+async function refreshAutostart(daemonRunning) {
+  if (daemonRunning === undefined) {
+    try {
+      const ctlPath = els.ctlPathInput.value.trim();
+      const configPath = els.ctlConfigInput.value.trim();
+      const s = await tauriCmd('daemon_status', { ctlPath, configPath });
+      daemonRunning = !!(s && s.running);
+    } catch (_) {
+      daemonRunning = false;
+    }
+  }
   try {
     const s = await tauriCmd('autostart_status');
-    applyAutostartUI(s);
+    applyAutostartUI(s, daemonRunning);
   } catch (e) {
     els.autostartMsg.textContent = '查询自启失败: ' + e;
     els.autostartEnableBtn.disabled = true;
