@@ -174,10 +174,11 @@ jobs:
 
       - name: Sync web assets
         shell: bash
-        run: |
-          mkdir -p tauri/dist
-          cp internal/server/web/index.html internal/server/web/style.css internal/server/web/app.js \
-             internal/server/web/favicon.svg internal/server/web/favicon-32.png tauri/dist/
+        # 历史教训：早期 inline 列文件 cp，漏掉 web/app/ 子目录 → ES module import 404 →
+        # Tauri 资产协议返回 text/html → 浏览器 "not a valid JavaScript MIME type"，
+        # 整个 webview 空白。改用 Makefile 的 tauri-sync 目标作为唯一来源，避免 CI / 本地
+        # 两份同步逻辑不一致。
+        run: make tauri-sync
 
       - name: cargo tauri build
         shell: bash
