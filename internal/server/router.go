@@ -1,6 +1,14 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/zhiying8710/oh-my-lan/internal/logging"
+	"github.com/zhiying8710/oh-my-lan/internal/server/admin"
+	"github.com/zhiying8710/oh-my-lan/internal/server/api"
+	"github.com/zhiying8710/oh-my-lan/internal/server/auth"
+	"github.com/zhiying8710/oh-my-lan/internal/server/device"
+)
 
 // registerRoutes 把所有 HTTP 路由挂到 mux 上。
 // 分三组：
@@ -14,108 +22,111 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	// auditor lazy-init：New() 路径已构造；newTestServer 直接 new(Server) 时为 nil。
+	if s.auditor == nil {
+		s.auditor = &api.Auditor{Store: s.store, Logger: s.logger}
+	}
+
+	// /api/auth/* 由 internal/server/auth/ 子包负责
+	authH := &auth.Handler{Store: s.store, Auditor: s.auditor, LoginRL: s.loginRL}
+	authH.Register(mux, s.authAdminMiddleware)
+
+	// /api/enroll/tokens、/api/devices/enroll、/api/services*、/api/forwards*、
+	// /api/devices/me/* 等设备视角端点由 internal/server/device/ 子包负责。
+	devH := &device.Handler{
+		Store: s.store, Tunnel: s.tunnel, Ports: s.ports, Enroll: s.enroll,
+		Auditor: s.auditor, Logger: s.logger, ChiselAdvertiseAddr: s.chiselAdvertiseAddr,
+	}
+
 	// 本机端点：生成 enrollment token
-	mux.HandleFunc("/api/enroll/tokens", requireLocal(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 POST")
-			return
-		}
-		s.handleIssueToken(w, r)
-	}))
+	mux.HandleFunc("/api/enroll/tokens", requireLocal(api.MethodOnly(http.MethodPost, devH.HandleIssueToken)))
 
 	// 公开端点：客户端用 token 注册
-	mux.HandleFunc("/api/devices/enroll", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 POST")
-			return
-		}
-		s.handleEnrollDevice(w, r)
-	})
+	mux.HandleFunc("/api/devices/enroll", api.MethodOnly(http.MethodPost, devH.HandleEnrollDevice))
 
-	// 公开端点：账号密码登录
-	mux.HandleFunc("/api/auth/login", methodOnly(http.MethodPost, s.handleAuthLogin))
-	// 登出 / me 需要先经过 admin 中间件（拿到 actor 上下文）
-	authedAuthMux := http.NewServeMux()
-	authedAuthMux.HandleFunc("/api/auth/logout", methodOnly(http.MethodPost, s.handleAuthLogout))
-	authedAuthMux.HandleFunc("/api/auth/me", methodOnly(http.MethodGet, s.handleAuthMe))
-	mux.Handle("/api/auth/logout", s.authAdminMiddleware(authedAuthMux))
-	mux.Handle("/api/auth/me", s.authAdminMiddleware(authedAuthMux))
-
-	// 设备认证端点
+	// 设备认证端点（device bearer）
 	devMux := http.NewServeMux()
 	devMux.HandleFunc("/api/services", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			s.handleListServices(w, r)
+			devH.HandleListServices(w, r)
 		case http.MethodPost:
-			s.handleAddService(w, r)
+			devH.HandleAddService(w, r)
 		default:
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
+			api.WriteError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
 		}
 	})
-	devMux.HandleFunc("/api/services/all", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 GET")
-			return
-		}
-		s.handleListAllServices(w, r)
-	})
-	devMux.HandleFunc("/api/services/", s.handleServiceItem)
+	devMux.HandleFunc("/api/services/all", api.MethodOnly(http.MethodGet, devH.HandleListAllServices))
+	devMux.HandleFunc("/api/services/", devH.HandleServiceItem)
 	devMux.HandleFunc("/api/forwards", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			s.handleListForwards(w, r)
+			devH.HandleListForwards(w, r)
 		case http.MethodPost:
-			s.handleAddForward(w, r)
+			devH.HandleAddForward(w, r)
 		default:
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
+			api.WriteError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
 		}
 	})
-	devMux.HandleFunc("/api/forwards/", s.handleForwardItem)
-	devMux.HandleFunc("/api/devices/me/bootstrap", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 GET")
-			return
-		}
-		s.handleBootstrap(w, r)
-	})
+	devMux.HandleFunc("/api/forwards/", devH.HandleForwardItem)
+	devMux.HandleFunc("/api/devices/me/bootstrap", api.MethodOnly(http.MethodGet, devH.HandleBootstrap))
+	devMux.HandleFunc("/api/devices/me/discover", api.MethodOnly(http.MethodGet, devH.HandleDiscover))
 	mux.Handle("/api/services", s.authDeviceMiddleware(devMux))
 	mux.Handle("/api/services/", s.authDeviceMiddleware(devMux))
 	mux.Handle("/api/forwards", s.authDeviceMiddleware(devMux))
 	mux.Handle("/api/forwards/", s.authDeviceMiddleware(devMux))
 	mux.Handle("/api/devices/me/bootstrap", s.authDeviceMiddleware(devMux))
+	mux.Handle("/api/devices/me/discover", s.authDeviceMiddleware(devMux))
 
-	// 管理端点（admin token 认证）
+	// /api/admin/* 由 internal/server/admin/ 子包负责。
+	adminH := &admin.Handler{
+		Store: s.store, Tunnel: s.tunnel, Ports: s.ports, Enroll: s.enroll,
+		Auditor: s.auditor, Logger: s.logger,
+		LogBufFn:            func() *logging.RingBuffer { return s.logBuf },
+		ChiselAdvertiseAddr: s.chiselAdvertiseAddr, StartedAt: s.startedAt,
+	}
 	adminMux := http.NewServeMux()
-	adminMux.HandleFunc("/api/admin/info", methodOnly(http.MethodGet, s.handleAdminInfo))
-	adminMux.HandleFunc("/api/admin/metrics", methodOnly(http.MethodGet, s.handleAdminMetrics))
-	adminMux.HandleFunc("/api/admin/audit", methodOnly(http.MethodGet, s.handleAdminListAudit))
-	adminMux.HandleFunc("/api/admin/devices", methodOnly(http.MethodGet, s.handleAdminListDevices))
-	adminMux.HandleFunc("/api/admin/devices/", s.handleAdminDeviceItem)
+	adminMux.HandleFunc("/api/admin/info", api.MethodOnly(http.MethodGet, adminH.HandleAdminInfo))
+	adminMux.HandleFunc("/api/admin/metrics", api.MethodOnly(http.MethodGet, adminH.HandleAdminMetrics))
+	adminMux.HandleFunc("/api/admin/audit", api.MethodOnly(http.MethodGet, adminH.HandleAdminListAudit))
+	adminMux.HandleFunc("/api/admin/logs", api.MethodOnly(http.MethodGet, adminH.HandleAdminLogs))
+	adminMux.HandleFunc("/api/admin/devices", api.MethodOnly(http.MethodGet, adminH.HandleAdminListDevices))
+	adminMux.HandleFunc("/api/admin/devices/", adminH.HandleAdminDeviceItem)
 	adminMux.HandleFunc("/api/admin/services", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			s.handleAdminListServices(w, r)
+			adminH.HandleAdminListServices(w, r)
 		case http.MethodPost:
-			s.handleAdminCreateService(w, r)
+			adminH.HandleAdminCreateService(w, r)
 		default:
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
+			api.WriteError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
 		}
 	})
-	adminMux.HandleFunc("/api/admin/services/", s.handleAdminServiceItem)
+	adminMux.HandleFunc("/api/admin/services/", adminH.HandleAdminServiceItem)
 	adminMux.HandleFunc("/api/admin/forwards", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			s.handleAdminListForwards(w, r)
+			adminH.HandleAdminListForwards(w, r)
 		case http.MethodPost:
-			s.handleAdminCreateForward(w, r)
+			adminH.HandleAdminCreateForward(w, r)
 		default:
-			writeError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
+			api.WriteError(w, http.StatusMethodNotAllowed, "仅支持 GET/POST")
 		}
 	})
-	adminMux.HandleFunc("/api/admin/forwards/", s.handleAdminForwardItem)
-	adminMux.HandleFunc("/api/admin/enroll/tokens", methodOnly(http.MethodPost, s.handleAdminIssueToken))
-	mux.Handle("/api/admin/", s.authAdminMiddleware(adminMux))
+	adminMux.HandleFunc("/api/admin/forwards/", adminH.HandleAdminForwardItem)
+	adminMux.HandleFunc("/api/admin/enroll/tokens", api.MethodOnly(http.MethodPost, adminH.HandleAdminIssueToken))
+	adminMux.HandleFunc("/api/admin/bark", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			adminH.HandleAdminBarkGet(w, r)
+		case http.MethodPut:
+			adminH.HandleAdminBarkPut(w, r)
+		default:
+			api.WriteError(w, http.StatusMethodNotAllowed, "仅支持 GET/PUT")
+		}
+	})
+	adminMux.HandleFunc("/api/admin/bark/test", api.MethodOnly(http.MethodPost, adminH.HandleAdminBarkTest))
+	mux.Handle("/api/admin/", adminH.AuthMiddleware(adminMux))
 
 	// /admin/ 提供嵌入的静态 Web UI；以及 /admin → /admin/ 重定向
 	mux.Handle("/admin/", adminWebHandler())

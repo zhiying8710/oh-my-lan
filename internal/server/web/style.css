@@ -121,6 +121,101 @@ button[disabled]:hover {
 .autostart-state-group { display: inline-flex; align-items: center; gap: 8px; }
 .autostart-label { font-weight: 500; color: var(--muted); font-size: 12px; }
 
+/* 「服务端」tab 内的服务端日志折叠区 (C1) */
+.logs-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.logs-section > summary { cursor: pointer; list-style: revert; }
+.logs-section .logs-heading {
+  display: inline;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+.logs-pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--fg);
+}
+/* 不同 level 不同前景色，与状态徽章配色统一 */
+.logs-pre .lvl-INFO  { color: var(--fg); }
+.logs-pre .lvl-WARN  { color: var(--online); font-weight: 600; }
+.logs-pre .lvl-ERROR { color: var(--danger); font-weight: 600; }
+.logs-pre .lvl-DEBUG { color: var(--muted); }
+
+/* 链路健康徽章（A1' Forward 表第 5 列） */
+.link-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+.link-badge.link-ok      { color: var(--online);  }
+.link-badge.link-bad     { color: var(--danger);  }
+.link-badge.link-unknown { color: var(--muted); font-weight: 400; }
+
+/* 「服务端」tab 内的 bark 推送配置折叠区 */
+.bark-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.bark-section > summary {
+  cursor: pointer;
+  list-style: revert;
+}
+.bark-section .bark-heading {
+  display: inline;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+.bark-form { margin-top: 12px; max-width: 540px; }
+.bark-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bark-row > span { flex: 0 0 110px; }
+.bark-row > input[type="text"],
+.bark-row > input[type="number"] { flex: 1; }
+.bark-row > input[type="checkbox"] + span { flex: none; color: var(--fg); }
+
+/* 「服务端」tab 内的审计折叠区——审计原来是顶层 tab，降级到这里作为可折叠子区，
+   释放一个顶层 nav slot 给未来扩展（流量/日志/网络）。
+   <details> 原生支持折叠，无需 JS，icon 是浏览器默认箭头 */
+.audit-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.audit-section > summary {
+  cursor: pointer;
+  list-style: revert;  /* 保留 ▶ disclosure marker；revert 让浏览器拿默认行为 */
+}
+.audit-section .audit-heading {
+  display: inline;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
 /* 本机 tab loading 占位：三个跳动小圆点 + 说明文案。
    Windows spawn omlctl 子进程 100-300ms 期间用户看到这个，比"白屏 + 突然出现卡片"舒服 */
 .local-loading { text-align: center; }

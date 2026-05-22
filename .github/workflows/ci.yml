@@ -13,8 +13,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.25'
           cache: true
@@ -24,3 +24,41 @@ jobs:
         run: go test ./...
       - name: go build
         run: go build ./...
+
+  # e2e smoke: 把 scripts/e2e/run.sh 在 CI 跑一遍。
+  #
+  # 历史教训：之前 e2e 只在本地能跑，PR 合进 main 后才被发现"chisel reload 在 ubuntu-latest
+  # 内核上的行为和 macOS 差异"。挂进 CI 让 reload race / port-pool / daemon spawn 等问题
+  # 在 PR 阶段就暴露。
+  #
+  # 仅 ubuntu-latest——脚本依赖 bash + nc + python3 + 端口能任意绑，三个平台都能跑但 ubuntu
+  # 时长最短、行为最稳定，用作 PR gate；macOS/Windows 的 build matrix 已覆盖 go test。
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: 确认 jq + python3 已就绪
+        # ubuntu-latest 默认有 jq + python3；早期版本曾依赖 nc 但 macOS/Linux 行为差异
+        # 太大，已改用 python socket 调用，nc 不再需要。这步主要为防御未来 image 变更。
+        run: |
+          command -v jq python3
+          jq --version
+          python3 --version
+      - name: 跑 mesh smoke
+        run: ./scripts/e2e/run.sh
+      - name: 失败时收集日志
+        if: failure()
+        run: |
+          echo "=== /tmp/oml-e2e tree ==="
+          find /tmp/oml-e2e -maxdepth 3 2>/dev/null || true
+          echo "=== server.log ==="
+          tail -200 /tmp/oml-e2e/server.log 2>/dev/null || true
+          echo "=== A daemon log ==="
+          tail -200 /tmp/oml-e2e/A/daemon.log 2>/dev/null || true
+          echo "=== B daemon log ==="
+          tail -200 /tmp/oml-e2e/B/daemon.log 2>/dev/null || true

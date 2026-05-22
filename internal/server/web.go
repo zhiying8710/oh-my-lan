@@ -6,7 +6,10 @@ import (
 	"net/http"
 )
 
-//go:embed web/*
+// 使用 `web`（不带 `/*`）以递归嵌入子目录——app.js 已拆成 `web/app/*.js` ES modules。
+// 早期写法 `web/*` 只会匹配顶层文件，子目录加载会 404。
+//
+//go:embed web
 var webFS embed.FS
 
 // adminWebHandler 返回 /admin/ 路径的静态文件 handler。

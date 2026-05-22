@@ -26,7 +26,7 @@ func (s *Server) reloadChiselUsers(ctx context.Context) error {
 	return nil
 }
 
-// runOfflineReaper 周期性地把心跳过期的设备标为 offline。
+// runOfflineReaper 周期性地把心跳过期的设备标为 offline，并按需触发 bark 推送。
 // 通过 ctx 控制生命周期；ctx 取消时干净退出。
 func (s *Server) runOfflineReaper(ctx context.Context) {
 	t := time.NewTicker(OfflineThreshold / 2)
@@ -45,6 +45,8 @@ func (s *Server) runOfflineReaper(ctx context.Context) {
 		if n > 0 {
 			s.logger.Info("标记 stale 设备为 offline", "count", n)
 		}
+		// bark push：对刚刚或仍然 offline 的设备发推送（已 alerted 的不重复发）
+		s.maybePushBarkAlerts(ctx)
 	}
 }
 

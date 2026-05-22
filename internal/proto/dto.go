@@ -158,6 +158,10 @@ type AdminServiceDTO struct {
 	PublicPort int       `json:"public_port"`
 	Enabled    bool      `json:"enabled"`
 	CreatedAt  time.Time `json:"created_at"`
+	// A1' 链路健康：最近一次 server-side TCP dial 探测结果。
+	// LastProbeAt 为 nil → 从未探测过；OK=false → 最近探测失败。
+	LastProbeAt *time.Time `json:"last_probe_at,omitempty"`
+	LastProbeOK bool       `json:"last_probe_ok"`
 }
 
 type AdminForwardDTO struct {
@@ -251,4 +255,31 @@ type AdminUserDTO struct {
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// BarkSettingsDTO 是 /api/admin/bark 的请求/响应体。
+// bark 推送：设备 last_seen_at 超过阈值时由 server-side reaper 推 iOS/macOS。
+type BarkSettingsDTO struct {
+	Enabled                 bool   `json:"enabled"`
+	BarkURL                 string `json:"bark_url"`
+	OfflineThresholdSeconds int    `json:"offline_threshold_seconds"`
+}
+
+// DiscoverDTO 是 /api/devices/me/discover 的响应体——
+// 设备视角看到的 mesh 内可见的其它设备的服务，用于 omlctl service ls --discover。
+type DiscoverDTO struct {
+	Services []ServiceBriefDTO `json:"services"`
+}
+
+// LogEntryDTO 是 /api/admin/logs 返回的单条记录。与 internal/logging.LogEntry 一一对应。
+// 重复定义而不 import logging：proto 是叶子包，不依赖业务包。
+type LogEntryDTO struct {
+	Time    time.Time `json:"time"`
+	Level   string    `json:"level"`
+	Message string    `json:"message"`
+	Attrs   string    `json:"attrs,omitempty"`
+}
+
+type LogsResponse struct {
+	Entries []LogEntryDTO `json:"entries"`
 }

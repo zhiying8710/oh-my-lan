@@ -24,16 +24,33 @@ func New(opts Options) *slog.Logger {
 // （例如 Windows GUI 父进程 spawn 的 console-detached 子进程），可以把它指向一个
 // `os.OpenFile(...)` 拿到的 file handle，让运行时日志可调试。
 func NewTo(w io.Writer, opts Options) *slog.Logger {
-	handlerOpts := &slog.HandlerOptions{Level: parseLevel(opts.Level)}
+	return slog.New(makeHandler(w, opts))
+}
 
-	var handler slog.Handler
+// NewWithBuffer 构建一个同时写 Writer + ring buffer 的 logger。
+// 调用方拿到 RingBuffer 后可暴露给 admin /api/admin/logs，让 Web UI 实时拉最近日志。
+//
+// 用法 (omlserver)：
+//
+//	buf := logging.NewRingBuffer(1000)
+//	logger := logging.NewWithBuffer(os.Stderr, logging.Options{...}, buf)
+//	// ... 把 buf 暴露给 server，让 admin handler 调 buf.Snapshot(N)
+func NewWithBuffer(w io.Writer, opts Options, buf *RingBuffer) *slog.Logger {
+	level := parseLevel(opts.Level)
+	return slog.New(NewMultiHandler(
+		makeHandler(w, opts),
+		NewBufferHandler(buf, level),
+	))
+}
+
+func makeHandler(w io.Writer, opts Options) slog.Handler {
+	handlerOpts := &slog.HandlerOptions{Level: parseLevel(opts.Level)}
 	switch strings.ToLower(opts.Format) {
 	case "json":
-		handler = slog.NewJSONHandler(w, handlerOpts)
+		return slog.NewJSONHandler(w, handlerOpts)
 	default:
-		handler = slog.NewTextHandler(w, handlerOpts)
+		return slog.NewTextHandler(w, handlerOpts)
 	}
-	return slog.New(handler)
 }
 
 func parseLevel(s string) slog.Level {

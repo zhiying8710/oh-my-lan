@@ -81,6 +81,14 @@ func (c *APIClient) Bootstrap(ctx context.Context) (proto.BootstrapResponse, err
 	return out, err
 }
 
+func (c *APIClient) DiscoverServices(ctx context.Context) ([]proto.ServiceBriefDTO, error) {
+	var out proto.DiscoverDTO
+	if err := c.do(ctx, http.MethodGet, "/api/devices/me/discover", true, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Services, nil
+}
+
 func (c *APIClient) ListAllServices(ctx context.Context) ([]proto.ServiceBriefDTO, error) {
 	var out proto.ListAllServicesResponse
 	if err := c.do(ctx, http.MethodGet, "/api/services/all", true, nil, &out); err != nil {

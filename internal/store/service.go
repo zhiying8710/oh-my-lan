@@ -68,12 +68,15 @@ func (s *Store) ListAllServices(ctx context.Context) ([]Service, error) {
 }
 
 // ServiceListItem 是 services JOIN devices 的扁平视图，避免 N+1 query。
+// A1' 之后增加链路健康字段：LastProbeAt 可能为 nil（从未探测过），LastProbeOK 反映最近一次结果。
 type ServiceListItem struct {
 	Service
-	DeviceName string
+	DeviceName  string
+	LastProbeAt *time.Time
+	LastProbeOK bool
 }
 
-// ListServicesJoined 一次性返回 service + 所属 device 的 name。
+// ListServicesJoined 一次性返回 service + 所属 device 的 name + 最近探测状态。
 // deviceID 为空表示返回所有设备的服务。
 func (s *Store) ListServicesJoined(ctx context.Context, deviceID string) ([]ServiceListItem, error) {
 	var (
@@ -83,13 +86,13 @@ func (s *Store) ListServicesJoined(ctx context.Context, deviceID string) ([]Serv
 	if deviceID == "" {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT s.id, s.device_id, s.name, s.protocol, s.local_addr, s.public_port, s.enabled, s.created_at,
-			       d.name
+			       d.name, s.last_probe_at, s.last_probe_ok
 			FROM services s JOIN devices d ON s.device_id = d.id
 			ORDER BY s.created_at ASC`)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
 			SELECT s.id, s.device_id, s.name, s.protocol, s.local_addr, s.public_port, s.enabled, s.created_at,
-			       d.name
+			       d.name, s.last_probe_at, s.last_probe_ok
 			FROM services s JOIN devices d ON s.device_id = d.id
 			WHERE s.device_id = ?
 			ORDER BY s.created_at ASC`, deviceID)
@@ -102,12 +105,14 @@ func (s *Store) ListServicesJoined(ctx context.Context, deviceID string) ([]Serv
 	var out []ServiceListItem
 	for rows.Next() {
 		var (
-			it      ServiceListItem
-			enabled int
-			created string
+			it         ServiceListItem
+			enabled    int
+			created    string
+			probeAtRaw sql.NullString
+			probeOK    int
 		)
 		if err := rows.Scan(&it.ID, &it.DeviceID, &it.Name, &it.Protocol, &it.LocalAddr,
-			&it.PublicPort, &enabled, &created, &it.DeviceName); err != nil {
+			&it.PublicPort, &enabled, &created, &it.DeviceName, &probeAtRaw, &probeOK); err != nil {
 			return nil, fmt.Errorf("扫描 service+device 行: %w", err)
 		}
 		it.Enabled = enabled != 0
@@ -116,6 +121,13 @@ func (s *Store) ListServicesJoined(ctx context.Context, deviceID string) ([]Serv
 			return nil, fmt.Errorf("解析 created_at: %w", err)
 		}
 		it.CreatedAt = c
+		if probeAtRaw.Valid && probeAtRaw.String != "" {
+			if pt, err := time.Parse(time.RFC3339, probeAtRaw.String); err == nil {
+				pt = pt.UTC()
+				it.LastProbeAt = &pt
+			}
+		}
+		it.LastProbeOK = probeOK != 0
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -150,6 +162,19 @@ func (s *Store) SetServiceEnabled(ctx context.Context, id string, enabled bool) 
 	}
 	return nil
 }
+
+// RecordServiceProbe 写入链路探测结果。A1' 健康探测器周期调。
+// ts 用 UTC；ok=true/false 反映 TCP dial 是否成功。
+func (s *Store) RecordServiceProbe(ctx context.Context, id string, ok bool, ts time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE services SET last_probe_at = ?, last_probe_ok = ? WHERE id = ?`,
+		ts.UTC().Format(time.RFC3339), boolToInt(ok), id)
+	return err
+}
+
+// ServiceProbe 是 ListServicesJoined 拿到的扩展字段，给 admin API 返回链路健康用。
+// 在 service.go 这里只增加 RecordServiceProbe；ListServicesJoined 已 JOIN 全表，
+// 字段映射在 forward.go / handler_admin.go 那边处理。
 
 func (s *Store) DeleteService(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM services WHERE id = ?`, id)

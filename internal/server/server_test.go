@@ -15,6 +15,7 @@ import (
 	"github.com/zhiying8710/oh-my-lan/internal/auth"
 	"github.com/zhiying8710/oh-my-lan/internal/enroll"
 	"github.com/zhiying8710/oh-my-lan/internal/proto"
+	"github.com/zhiying8710/oh-my-lan/internal/server/api"
 	"github.com/zhiying8710/oh-my-lan/internal/store"
 	"github.com/zhiying8710/oh-my-lan/internal/tunnel"
 )
@@ -40,7 +41,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 		store:               st,
 		enroll:              enroll.New(st),
 		tunnel:              tun,
-		ports:               NewPortAllocator(st, 40000, 40010),
+		ports:               api.NewPortAllocator(st, 40000, 40010),
 		chiselAdvertiseAddr: "test-vps:8443",
 	}
 	mux := http.NewServeMux()

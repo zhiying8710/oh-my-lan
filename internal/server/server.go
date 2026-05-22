@@ -22,6 +22,9 @@ import (
 	"time"
 
 	"github.com/zhiying8710/oh-my-lan/internal/enroll"
+	"github.com/zhiying8710/oh-my-lan/internal/logging"
+	"github.com/zhiying8710/oh-my-lan/internal/server/api"
+	"github.com/zhiying8710/oh-my-lan/internal/server/prober"
 	"github.com/zhiying8710/oh-my-lan/internal/store"
 	"github.com/zhiying8710/oh-my-lan/internal/tunnel"
 )
@@ -37,6 +40,7 @@ type Options struct {
 	PortMin, PortMax    int
 	Store               *store.Store
 	Logger              *slog.Logger
+	LogBuffer           *logging.RingBuffer // 可选；非 nil 时 /api/admin/logs 暴露最近日志
 }
 
 // Server 是控制平面 + 隧道的组合体。
@@ -45,9 +49,13 @@ type Server struct {
 	store               *store.Store
 	enroll              *enroll.Service
 	tunnel              *tunnel.Server
-	ports               *PortAllocator
+	ports               *api.PortAllocator
 	chiselAdvertiseAddr string
 	startedAt           time.Time
+
+	loginRL *api.LoginRateLimiter // 登录失败 5/min/IP，见 api/api.go
+	logBuf  *logging.RingBuffer // C1: server 日志环形 buffer；可能为 nil（测试 / cli 入口未连）
+	auditor *api.Auditor        // 包装 (store + logger) 写一条 audit 记录；s.audit 委托给它
 
 	httpSrv *http.Server
 }
@@ -84,9 +92,12 @@ func New(opts Options) (*Server, error) {
 		store:               opts.Store,
 		enroll:              enroll.New(opts.Store),
 		tunnel:              tun,
-		ports:               NewPortAllocator(opts.Store, opts.PortMin, opts.PortMax),
+		ports:               api.NewPortAllocator(opts.Store, opts.PortMin, opts.PortMax),
 		chiselAdvertiseAddr: advertise,
 		startedAt:           time.Now(),
+		loginRL:             api.NewLoginRateLimiter(),
+		logBuf:              opts.LogBuffer,
+		auditor:             &api.Auditor{Store: opts.Store, Logger: opts.Logger},
 		httpSrv: &http.Server{
 			Addr:              opts.ListenAddr,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -103,7 +114,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 	// 给所有路径包一层 CORS（静态资源 /admin/ 用同源加载，但加上 CORS 也无害）
-	s.httpSrv.Handler = withCORS(mux)
+	s.httpSrv.Handler = api.WithCORS(mux)
 
 	if err := s.tunnel.Start(ctx); err != nil {
 		return fmt.Errorf("启动 chisel server: %w", err)
@@ -117,11 +128,12 @@ func (s *Server) Start(ctx context.Context) error {
 	defer cancelReaper()
 	go s.runOfflineReaper(reaperCtx)
 	go s.runSessionReaper(reaperCtx)
+	go prober.New(s.store, s.logger).Run(reaperCtx)
 
 	errCh := make(chan error, 2)
 	go func() {
 		if err := s.httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- fmt.Errorf("HTTP server: %w", err)
+			errCh <- fmt.Errorf("HTTP server 异常退出: %w", err)
 		}
 	}()
 	go func() {

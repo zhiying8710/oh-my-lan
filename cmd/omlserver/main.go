@@ -492,7 +492,12 @@ func runServer(ctx context.Context, configPath string) error {
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
 	}
-	logger := logging.New(logging.Options{Level: cfg.Log.Level, Format: cfg.Log.Format})
+	// 同时写 stderr + ring buffer：buffer 提供 /api/admin/logs 给 UI「服务端」tab 实时拉
+	logBuf := logging.NewRingBuffer(1000)
+	logger := logging.NewWithBuffer(os.Stderr, logging.Options{
+		Level:  cfg.Log.Level,
+		Format: cfg.Log.Format,
+	}, logBuf)
 
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fmt.Errorf("创建 data_dir: %w", err)
@@ -514,6 +519,7 @@ func runServer(ctx context.Context, configPath string) error {
 		PortMax:             cfg.PortPool.Max,
 		Store:               st,
 		Logger:              logger,
+		LogBuffer:           logBuf,
 	})
 	if err != nil {
 		return err

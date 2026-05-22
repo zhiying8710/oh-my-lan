@@ -39,6 +39,14 @@ fn plist_path() -> Result<PathBuf, String> {
         .join(format!("{PLIST_LABEL}.plist")))
 }
 
+/// 当前用户 UID。`launchctl bootstrap/bootout` 需要 `gui/<uid>` 形式的 domain。
+/// 优先用 unsafe libc::getuid（零依赖），失败时降级读 USER + `id -u`。
+#[cfg(target_os = "macos")]
+fn macos_uid() -> Result<u32, String> {
+    // libc 已在 Cargo.toml 作为 unix 平台依赖，零额外开销
+    Ok(unsafe { libc::getuid() } as u32)
+}
+
 #[cfg(target_os = "windows")]
 const WINDOWS_VBS_NAME: &str = "oh-my-lan-daemon.vbs";
 
@@ -131,19 +139,42 @@ pub fn enable(ctl: &Path, config: &Path, stderr: &Path, pid_file: &Path) -> Resu
                 .map_err(|e| format!("创建 LaunchAgents 目录失败: {e}"))?;
         }
         std::fs::write(&path, plist).map_err(|e| format!("写 plist {path:?}: {e}"))?;
-        // launchctl load -w 会同时 enable + RunAtLoad 即时启动；旧版 macOS 也支持
+        // 用 `launchctl bootstrap gui/$UID <plist>` 取代 deprecated 的 `load -w`。
+        // bootstrap 在 macOS 10.10+ 就有了，到 12+ 是推荐 API；load/unload 仍可用但每次会
+        // 在 stderr 打 "deprecation warning"。
+        //
+        // 兼容兜底：bootstrap 在极旧的 macOS 上可能不存在，捕获错误后 fallback 到 `load -w`。
+        let uid = macos_uid()?;
+        let domain = format!("gui/{uid}");
         let out = Command::new("launchctl")
-            .args(["load", "-w"])
+            .args(["bootstrap", &domain])
             .arg(&path)
             .hide_window()
             .output()
-            .map_err(|e| format!("调用 launchctl 失败: {e}"))?;
+            .map_err(|e| format!("调用 launchctl bootstrap 失败: {e}"))?;
         if !out.status.success() {
-            // launchctl load 在已加载时会返回非零；忽略 "already loaded" 这种重复操作
             let err = String::from_utf8_lossy(&out.stderr);
-            if !err.contains("already loaded") && !err.contains("Operation already in progress") {
-                return Err(format!("launchctl load 失败: {}", err.trim()));
+            // 已经 bootstrap 过返回 36 "service already bootstrapped"——视为成功
+            if err.contains("already bootstrapped") || err.contains("Operation already in progress") {
+                return Ok(());
             }
+            // 旧 macOS 没有 bootstrap 子命令——降级到 load
+            if err.contains("Unrecognized") || err.contains("Unknown subcommand") {
+                let out2 = Command::new("launchctl")
+                    .args(["load", "-w"])
+                    .arg(&path)
+                    .hide_window()
+                    .output()
+                    .map_err(|e| format!("调用 launchctl load 失败: {e}"))?;
+                if !out2.status.success() {
+                    let err2 = String::from_utf8_lossy(&out2.stderr);
+                    if !err2.contains("already loaded") && !err2.contains("Operation already in progress") {
+                        return Err(format!("launchctl load 失败: {}", err2.trim()));
+                    }
+                }
+                return Ok(());
+            }
+            return Err(format!("launchctl bootstrap 失败: {}", err.trim()));
         }
         return Ok(());
     }
@@ -199,21 +230,33 @@ pub fn disable() -> Result<(), String> {
     {
         let path = plist_path()?;
         if path.exists() {
-            // unload -w 同时 disable + stop
+            // 用 `launchctl bootout gui/$UID/<label>` 替代 deprecated `unload -w`
+            let uid = macos_uid()?;
+            let service = format!("gui/{uid}/{PLIST_LABEL}");
             let out = Command::new("launchctl")
-                .args(["unload", "-w"])
-                .arg(&path)
+                .args(["bootout", &service])
                 .hide_window()
                 .output()
-                .map_err(|e| format!("调用 launchctl 失败: {e}"))?;
+                .map_err(|e| format!("调用 launchctl bootout 失败: {e}"))?;
             if !out.status.success() {
                 let err = String::from_utf8_lossy(&out.stderr);
-                // 没加载时 unload 会返回非零，忽略
-                if !err.contains("Could not find specified service")
-                    && !err.contains("Operation not permitted while System Integrity Protection")
-                {
-                    // 但仍然继续删除 plist 文件——下次启动就不会再加载
-                    eprintln!("launchctl unload 警告: {}", err.trim());
+                // bootout 在 service 未加载 / 不存在时返回非零；旧 macOS 没 bootout，fallback unload
+                let needs_fallback = err.contains("Unrecognized") || err.contains("Unknown subcommand");
+                let ignorable = err.contains("Could not find specified service")
+                    || err.contains("No such process")
+                    || err.contains("Operation not permitted while System Integrity Protection");
+                if needs_fallback {
+                    let out2 = Command::new("launchctl")
+                        .args(["unload", "-w"])
+                        .arg(&path)
+                        .hide_window()
+                        .output()
+                        .map_err(|e| format!("调用 launchctl unload 失败: {e}"))?;
+                    if !out2.status.success() {
+                        eprintln!("launchctl unload 警告: {}", String::from_utf8_lossy(&out2.stderr).trim());
+                    }
+                } else if !ignorable {
+                    eprintln!("launchctl bootout 警告: {}", err.trim());
                 }
             }
             std::fs::remove_file(&path).map_err(|e| format!("删除 plist {path:?}: {e}"))?;

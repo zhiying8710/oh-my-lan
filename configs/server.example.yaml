@@ -1,15 +1,41 @@
-# omlserver 配置示例
-listen_addr: ":8080"                       # 控制平面 HTTP API
-chisel_listen_addr: ":8443"                # chisel 隧道入口（设备 daemon 接入此端口）
-chisel_advertise_addr: ""                  # 通告给客户端的 chisel 地址，如 "vps.example.com:8443"，空则用 listen
-chisel_key_seed: ""                        # 可选；填一个长字符串可让 chisel server fingerprint 稳定
+# oh-my-lan 服务端配置示例
+#
+# omlserver 启动时读取本文件（路径由 -c/--config 指定，默认 configs/server.example.yaml）。
+# 把它拷到生产路径，按需修改，然后 `omlserver --config /etc/oml/server.yaml`。
+
+# 控制平面 HTTP 监听地址（Web Admin UI + 客户端 enroll/bootstrap API）。
+# 默认 :8080；生产建议放在反代后面接 HTTPS（参见 docs/architecture.md）。
+listen_addr: ":8080"
+
+# chisel 隧道入口（设备 daemon 长连到这里）。
+# 默认 :8443；生产推荐与 listen_addr 不同端口，可放公网防火墙白名单。
+chisel_listen_addr: ":8443"
+
+# 通告给客户端的 chisel 地址。omlctl 拿 bootstrap 时会收到这个地址作为连接目标。
+# 留空时回退到 chisel_listen_addr 字面值（"server:8443"），但生产**必须**填具体
+# 公网可达地址（域名 + 端口），如 "vps.example.com:8443"。
+chisel_advertise_addr: ""
+
+# chisel server 长期 key 的随机种子。
+# 留空时 server 启动后自动生成并落盘到 data_dir/chisel.seed。
+# 设备 daemon 拿到 fingerprint 后认值；后续 server 重启需要保持 fingerprint 稳定，
+# 否则所有 daemon 会因 fingerprint mismatch 拒绝连接。
+chisel_key_seed: ""
+
+# SQLite 数据目录。包含 oml.db（设备/服务/forward/审计日志/admin 用户）、
+# chisel.seed（key 种子）、enrolled token 等持久状态。0o600 权限自动设置。
 data_dir: "./data"
 
-# 公网端口池，发布服务时从这个范围分配
+# 公网端口池：发布服务 / 添加 forward 时从该范围分配 listen 端口。
+# 生产建议范围避开常用端口（22/80/443 等）；防火墙需要把整个范围放开。
+# port_pool 大小决定 mesh 内"被 publish 服务总数"的上限。
 port_pool:
   min: 40000
   max: 49999
 
 log:
-  level: "info"      # debug / info / warn / error
-  format: "text"     # text / json
+  # 日志级别：debug / info / warn / error；生产用 info 即可。
+  # debug 会打印 chisel client 内部连接细节，调试时再打开。
+  level: "info"
+  # 输出格式：text（人读友好，单行 key=val）/ json（机器读，便于 grep/jq）。
+  format: "text"

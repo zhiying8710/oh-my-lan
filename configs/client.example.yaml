@@ -1,18 +1,44 @@
-# omlctl 配置示例
+# oh-my-lan 客户端（omlctl）配置示例
+#
+# omlctl 启动时读取本文件（路径由 -c/--config 指定）。桌面客户端首次启动会自动
+# 写一份默认配置到平台标准路径：
+#   macOS:   ~/Library/Application Support/oh-my-lan/client.yaml
+#   Linux:   $XDG_CONFIG_HOME/oh-my-lan/client.yaml  或  ~/.config/oh-my-lan/client.yaml
+#   Windows: %APPDATA%\oh-my-lan\client.yaml
+# CLI 用户用 -c/--config 显式指定即可。
+
+# 服务端控制平面地址（http:// 或将来的 https://）。
+# 注册（omlctl enroll）和 daemon bootstrap 都打这里。
+# 注意：daemon 实际的隧道连接打的是 server 通告的 chisel_advertise_addr，与本字段不同。
 server_url: "http://your-vps:8080"
+
+# 本机设备名。omlctl enroll 时会用 --name 覆盖；这里只是 CLI 子命令的默认值。
+# 设备名在服务端唯一，不能与其它设备重名。
 device_name: "my-laptop"
+
+# 客户端状态目录。daemon 在这里写：
+#   - state.json （device_id / tunnel_secret / fingerprint，0o600 权限）
+#   - daemon.pid / daemon.stderr （pidfile + 日志，用 --pid-file / --log-file 控制）
+# 桌面客户端 ensure_client_config 总是把它指向 client.yaml 同级 data/ 目录。
 data_dir: "./data"
 
-# daemon 轮询服务端获取服务变更的间隔；0 使用默认 30 秒
-# 在 daemon 启动后，每个周期会调用一次 /api/devices/me/bootstrap，
-# 既检测远端配置变更触发隧道重建，也充当 keepalive 让服务端感知设备在线
+# daemon 轮询服务端获取服务/forward 配置变更的间隔（秒）。0 走默认 30。
+# 太短增加 server 负载，太长则配置变更等待时间长。
+# 每个周期 daemon 调一次 /api/devices/me/bootstrap：
+#   1. 拿最新的 services + forwards 配置 → 检测 hash 变更 → 重建 chisel client
+#   2. 充当 keepalive 让服务端把本机标为 online
+#   3. 如果服务端返回 401（device 被 admin 撤销），daemon 自杀退出
 reload_interval_seconds: 0
 
-# 本机 daemon 与 UI/CLI 通信的 IPC 端点
-# Linux/macOS: 留空表示用默认 unix socket 路径（data_dir 下 ipc.sock）
-# Windows:     留空表示用默认 named pipe 名称（\\.\pipe\oml-<device_name>）
+# 本机 daemon 与 UI/CLI 通信的 IPC 端点（M5.2.Y 起未启用——Tauri 直接 spawn omlctl）。
+# 保留字段供未来"daemon 长跑 + CLI 短连"场景使用。
+#   Linux/macOS: 留空表示用默认 unix socket（data_dir 下 ipc.sock）
+#   Windows:     留空表示用默认 named pipe（\\.\pipe\oml-<device_name>）
 ipc_socket: ""
 
 log:
+  # 日志级别：debug / info / warn / error。生产用 info；
+  # debug 会打开 chisel client 的详细输出，调试 mesh 连接问题用得着。
   level: "info"
+  # 输出格式：text（人读）/ json（机器读，方便 grep/jq）。
   format: "text"

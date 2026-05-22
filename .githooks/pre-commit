@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#
+# pre-commit hook：在 commit 前跑最基本的质量门——
+#   1. make web-lint （前端：getElementById 引用、全局名冲突、原生 confirm/alert）
+#   2. go vet ./...   （Go 语义检查）
+#   3. go test 全量    （只跑 internal/...，几秒）
+#   4. cargo test（仅当本次有 .rs / Cargo.toml / tauri 资源变更时）
+#
+# brooks-sweep 全维度检查（review / architecture / debt / test）适合手工跑：
+# 它需要 Claude Code 主进程，pre-commit 钩子里没法直接调用 skill。
+# 这里 hook 跑的是机械可执行的 lint/test，brooks-sweep 仍然按 CLAUDE.md 流程在
+# commit 之前由 Claude 主动跑。
+#
+# 安装：git config core.hooksPath .githooks
+# 跳过（紧急情况）：git commit --no-verify
+#
+# 历史教训：CLAUDE.md 要求 "完成新功能 / bug 修复后必须跑 full sweep"。这条规则
+# 仅靠人工自律不可靠——hook 把"代码不通过基本机械检查就不能 commit"做成硬约束。
+
+set -e
+
+# 仅看 staged 的范围，避免误判 untracked 的脏文件
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [[ -z "$staged" ]]; then
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+echo "[pre-commit] 1/4 web-lint"
+make web-lint > /dev/null 2>&1 || {
+  echo "[pre-commit] ✗ web-lint 失败，请先修复或 --no-verify 跳过"
+  make web-lint
+  exit 1
+}
+
+# 任意 .go 文件改动 → 跑 vet + test
+if echo "$staged" | grep -qE '\.go$|go\.(mod|sum)$'; then
+  echo "[pre-commit] 2/4 go vet"
+  go vet ./... > /tmp/oml-prehook-vet.log 2>&1 || {
+    echo "[pre-commit] ✗ go vet 失败"
+    cat /tmp/oml-prehook-vet.log
+    exit 1
+  }
+  echo "[pre-commit] 3/4 go test ./internal/..."
+  go test ./internal/... > /tmp/oml-prehook-test.log 2>&1 || {
+    echo "[pre-commit] ✗ go test 失败"
+    cat /tmp/oml-prehook-test.log
+    exit 1
+  }
+fi
+
+# Rust 文件改动 → 跑 cargo test（增量缓存，几秒）
+if echo "$staged" | grep -qE 'tauri/src-tauri/(src/.*\.rs|Cargo\.(toml|lock))$'; then
+  echo "[pre-commit] 4/4 cargo test (tauri)"
+  (cd tauri/src-tauri && cargo test --quiet) > /tmp/oml-prehook-cargo.log 2>&1 || {
+    echo "[pre-commit] ✗ cargo test 失败"
+    cat /tmp/oml-prehook-cargo.log
+    exit 1
+  }
+fi
+
+echo "[pre-commit] ✓ 全部检查通过"
+echo "[pre-commit] 提示：CLAUDE.md 要求完成新功能/bug 修复后还要主动跑 brooks-sweep"

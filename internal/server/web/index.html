@@ -63,7 +63,6 @@
       <button class="tab active" data-tab="devices">设备</button>
       <button class="tab" data-tab="services">服务</button>
       <button class="tab" data-tab="forwards">Forward</button>
-      <button class="tab" data-tab="audit">审计</button>
       <button class="tab" data-tab="info">服务端</button>
       <button class="tab tab-tauri" data-tab="local" hidden>本机</button>
     </nav>
@@ -95,23 +94,69 @@
         <button id="forward-add-btn" type="button">+ 添加 forward</button>
       </div>
       <table>
-        <!-- 5 列：合并原本的 本地端口 / → / 远端设备 / 远端服务 / 公网端口 → 单列 "路由" -->
-        <thead><tr><th>Owner 设备</th><th>路由</th><th>协议</th><th>状态</th><th></th></tr></thead>
+        <!-- 6 列：合并 本地端口 / → / 远端设备 / 远端服务 / 公网端口 → 单列"路由"
+             + 新增"链路"列显示 server-side TCP 探测结果（A1' 健康监测） -->
+        <thead><tr><th>Owner 设备</th><th>路由</th><th>协议</th><th>状态</th><th>链路</th><th></th></tr></thead>
         <tbody id="forwards-tbody"></tbody>
-      </table>
-    </div>
-
-    <div id="tab-audit" class="tab-panel" hidden>
-      <p class="muted">最近 200 条审计记录（按时间倒序）。actor 字段：<code>admin:&lt;短指纹&gt;</code> / <code>device:&lt;id&gt;</code> / <code>system</code>。</p>
-      <table>
-        <thead><tr><th>时间</th><th>动作</th><th>主体</th><th>目标</th><th>详情</th></tr></thead>
-        <tbody id="audit-tbody"></tbody>
       </table>
     </div>
 
     <div id="tab-info" class="tab-panel" hidden>
       <div class="metrics-grid" id="metrics-grid"></div>
       <dl id="info-dl"></dl>
+
+      <!-- bark 推送配置：设备离线时由 server 推 iOS/macOS bark 通知 -->
+      <details class="bark-section">
+        <summary><h2 class="bark-heading">设备离线推送（bark）</h2></summary>
+        <p class="muted">
+          server 周期检测设备 <code>last_seen_at</code>，超过阈值时把告警推到你的 bark URL
+          （iOS/macOS 端 App：<a href="https://github.com/Finb/Bark" target="_blank">Bark</a>）。
+          每次离线只推一次，回到在线后重置。
+        </p>
+        <form id="bark-form" class="bark-form">
+          <label class="bark-row">
+            <input id="bark-enabled" type="checkbox">
+            <span>启用 bark 推送</span>
+          </label>
+          <label class="bark-row">
+            <span>bark URL</span>
+            <input id="bark-url" type="text" placeholder="https://api.day.app/AbCdEf1234XYz" autocomplete="off">
+          </label>
+          <label class="bark-row">
+            <span>离线阈值（秒）</span>
+            <input id="bark-threshold" type="number" min="30" max="3600" step="10" value="180">
+          </label>
+          <div class="modal-actions">
+            <button type="button" id="bark-test-btn">发送测试推送</button>
+            <button type="submit" class="btn-primary">保存配置</button>
+          </div>
+          <p id="bark-msg" class="muted"></p>
+        </form>
+      </details>
+
+      <!-- C1: server 进程实时日志（ring buffer 最近 N 条） -->
+      <details class="logs-section">
+        <summary><h2 class="logs-heading">服务端日志</h2></summary>
+        <p class="muted">
+          server 进程的最近运行时日志（环形 buffer，容量 1000 条）。每次展开会重新拉一次。
+          重启 server 缓冲清空。
+        </p>
+        <div class="panel-actions">
+          <button id="logs-refresh-btn" type="button">刷新</button>
+          <span id="logs-status" class="muted"></span>
+        </div>
+        <pre id="logs-pre" class="logs-pre"></pre>
+      </details>
+
+      <!-- 审计日志作为「服务端」tab 的子区域，不再占顶层 nav slot -->
+      <details class="audit-section">
+        <summary><h2 class="audit-heading">审计日志</h2></summary>
+        <p class="muted">最近 200 条审计记录（按时间倒序）。actor 字段：<code>admin:&lt;短指纹&gt;</code> / <code>device:&lt;id&gt;</code> / <code>system</code>。</p>
+        <table>
+          <thead><tr><th>时间</th><th>动作</th><th>主体</th><th>目标</th><th>详情</th></tr></thead>
+          <tbody id="audit-tbody"></tbody>
+        </table>
+      </details>
     </div>
 
     <!-- 本机 daemon 控制面板（仅 Tauri 显示） -->
@@ -273,6 +318,8 @@
   </div>
 </dialog>
 
-<script src="app.js"></script>
+<!-- ES module：app.js 已拆为 web/app/*.js 多模块，type=module 让浏览器原生解析 import。
+     无需打包/bundler；HTTP/2 复用让多文件请求开销可忽略。 -->
+<script type="module" src="app.js"></script>
 </body>
 </html>

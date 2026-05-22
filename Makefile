@@ -13,9 +13,15 @@ LDFLAGS := -ldflags "\
 	-X $(MODULE)/internal/version.Commit=$(COMMIT) \
 	-X $(MODULE)/internal/version.BuildTime=$(BUILD_TIME)"
 
-.PHONY: build server ctl test vet tidy clean run-server run-ctl tauri-sync tauri-dev tauri-build tauri-bin tauri-sidecar tauri-pack icons
+.PHONY: build server ctl test vet tidy clean run-server run-ctl tauri-sync tauri-dev tauri-build tauri-bin tauri-sidecar tauri-pack icons install-hooks
 
 build: server ctl
+
+# install-hooks: 把 .githooks/ 设为 git hooks 目录。一次性操作。
+# 加 hook 后每次 commit 自动跑 web-lint / go vet / go test / cargo test（按需）。
+install-hooks:
+	git config core.hooksPath .githooks
+	@echo "[hooks] ✓ pre-commit hook 启用；跳过用 git commit --no-verify"
 
 server:
 	@mkdir -p $(BINDIR)
@@ -49,9 +55,15 @@ run-ctl: ctl
 # tauri-dev:  cargo run（开发，自动同步 dist）
 # tauri-build: cargo tauri build（产 .app/.exe/.AppImage；需要 cargo install tauri-cli）
 
+# tauri/dist 是从 internal/server/web/ 镜像出来的副本，**永远 always-regenerate**：
+# 每次 make tauri-* 目标都先 cp 覆盖一遍，保证 Tauri webview 跑的是最新前端。
+# 因为是镜像，所以入 .gitignore 不追踪；唯一来源是 internal/server/web/。
 tauri-sync:
 	@mkdir -p tauri/dist
-	cp internal/server/web/index.html internal/server/web/style.css internal/server/web/app.js tauri/dist/
+	@rm -rf tauri/dist/app
+	cp -f internal/server/web/index.html internal/server/web/style.css internal/server/web/app.js \
+	      internal/server/web/favicon.svg internal/server/web/favicon-32.png tauri/dist/
+	@cp -R internal/server/web/app tauri/dist/app
 
 # web-lint：极简前端健全性检查（带历史教训）。
 # ① 历史教训 1：Edit 静默漏改 → app.js 引用已删除的 DOM id → 浏览器空白 + TypeError
@@ -70,25 +82,25 @@ JS_GLOBAL_BLACKLIST = isTauri
 web-lint:
 	@set -e; \
 	HTML=internal/server/web/index.html; \
-	JS=internal/server/web/app.js; \
-	for ref in $$(grep -oE "getElementById\('[a-z-]+'\)" $$JS | sed -E "s/.*'([^']+)'.*/\1/" | sort -u); do \
-		grep -q "id=\"$$ref\"" $$HTML || { echo "[web-lint] app.js 引用了不存在的 id: $$ref"; exit 1; }; \
+	JS_FILES=$$(find internal/server/web -maxdepth 2 -name '*.js' -type f); \
+	for ref in $$(grep -ohE "getElementById\('[a-z-]+'\)" $$JS_FILES | sed -E "s/.*'([^']+)'.*/\1/" | sort -u); do \
+		grep -q "id=\"$$ref\"" $$HTML || { echo "[web-lint] JS 引用了不存在的 id: $$ref"; exit 1; }; \
 	done; \
 	for name in $(JS_GLOBAL_BLACKLIST); do \
-		if grep -E "^\s*(const|let|var)\s+$$name\b" $$JS >/dev/null; then \
-			echo "[web-lint] app.js 用 const/let/var 声明了 \"$$name\"，会跟 Tauri 注入的全局冲突 (SyntaxError)"; \
+		if grep -hE "^\s*(const|let|var)\s+$$name\b" $$JS_FILES >/dev/null; then \
+			echo "[web-lint] JS 用 const/let/var 声明了 \"$$name\"，会跟 Tauri 注入的全局冲突 (SyntaxError)"; \
 			exit 1; \
 		fi; \
 	done; \
-	hits=$$(grep -nE "(^|[^a-zA-Z_.])(confirm|alert|prompt)\\s*\\(" $$JS \
+	hits=$$(grep -nE "(^|[^a-zA-Z_.])(confirm|alert|prompt)\\s*\\(" $$JS_FILES \
 	         | grep -vE "//.*(confirm|alert|prompt)" \
-	         | grep -vE "(showConfirm|showAlert|_resolveAlert|alertModal|alertMessage|alertTitle|alertOkBtn|alertCancelBtn|enrollMsg|autostartMsg|daemonMsg|enrollGenerateTokenBtn|enrollTokenInput|enrollNameInput|enrollForm|enrollCard|enrollServerDisplay|placeholder=\"ot)" || true); \
+	         | grep -vE "(showConfirm|showAlert|resolveAlert|alertModal|alertMessage|alertTitle|alertOkBtn|alertCancelBtn|enrollMsg|autostartMsg|daemonMsg|enrollGenerateTokenBtn|enrollTokenInput|enrollNameInput|enrollForm|enrollCard|enrollServerDisplay|placeholder=\"ot)" || true); \
 	if [ -n "$$hits" ]; then \
-		echo "[web-lint] app.js 直接调用了 window.confirm/alert/prompt——必须用 showConfirm/showAlert："; \
+		echo "[web-lint] JS 直接调用了 window.confirm/alert/prompt——必须用 showConfirm/showAlert："; \
 		echo "$$hits"; \
 		exit 1; \
 	fi; \
-	echo "[web-lint] ✓ DOM id / 全局名冲突 / 原生 confirm-alert 检查通过"
+	echo "[web-lint] ✓ DOM id / 全局名冲突 / 原生 confirm-alert 检查通过 ($$(echo $$JS_FILES | wc -w | tr -d ' ') 个 JS 文件)"
 
 test: web-lint
 

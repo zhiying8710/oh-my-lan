@@ -252,16 +252,28 @@ func newServiceAddCmd(configPath *string) *cobra.Command {
 }
 
 func newServiceListCmd(configPath *string) *cobra.Command {
-	var all bool
+	var all, discover bool
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "列出本设备已发布的服务（--all 显示所有设备）",
+		Short: "列出本设备已发布的服务（--all 含所有设备 / --discover 仅其它设备的可用服务）",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			state, err := loadState(*configPath)
 			if err != nil {
 				return err
 			}
 			api := client.EnrolledAPIClient(state)
+			if discover {
+				list, err := api.DiscoverServices(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if len(list) == 0 {
+					fmt.Println("（mesh 中其它设备尚未发布任何已启用的服务）")
+					return nil
+				}
+				printAllServices(list)
+				return nil
+			}
 			if all {
 				list, err := api.ListAllServices(cmd.Context())
 				if err != nil {
@@ -278,7 +290,8 @@ func newServiceListCmd(configPath *string) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&all, "all", false, "列出所有设备的服务，便于挑选 forward 目标")
+	cmd.Flags().BoolVar(&all, "all", false, "列出所有设备的服务（admin 视角，含 disabled）")
+	cmd.Flags().BoolVar(&discover, "discover", false, "服务自动发现：仅其它设备的已启用服务（forward 候选）")
 	return cmd
 }
 
@@ -441,8 +454,10 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 	// 不指定时不写文件，保持 CLI 友好。
 	var pidFile string
 	var logFile string
+	var logRotateMB int
 	startCmd.Flags().StringVar(&pidFile, "pid-file", "", "启动后将当前 pid 写入该文件，退出时尝试删除（用于外部探活）")
 	startCmd.Flags().StringVar(&logFile, "log-file", "", "把 daemon 日志写到该文件而不是 stderr（Windows VBS / launchd daemon 模式需要，因为 stderr 不可见）")
+	startCmd.Flags().IntVar(&logRotateMB, "log-rotate-size", 10, "log 文件超过该大小（MB）时，启动时把它 mv 到 .1 再开新文件；0 关闭轮转")
 	startCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		// Windows daemon 由 wscript / Tauri spawn 时父进程是 GUI，Windows 会为我们这种 console
 		// subsystem 子进程分配 console，导致任务栏闪一个黑窗。daemon 模式下不需要 console，
@@ -464,6 +479,20 @@ func newDaemonCmd(configPath *string) *cobra.Command {
 		if logFile != "" {
 			if err := os.MkdirAll(filepath.Dir(logFile), 0o755); err != nil {
 				return fmt.Errorf("创建 log 目录: %w", err)
+			}
+			// 启动时日志轮转：若现有日志文件大于阈值，重命名为 .1 再开新文件。
+			// 简化策略——只保留一个备份（.1），第二轮 rotate 时 .1 被覆盖。
+			// 日轮转 / 大小+时间组合 / 多级 .1 .2 ...看 daemon 日志量再决定要不要升级。
+			if logRotateMB > 0 {
+				if fi, statErr := os.Stat(logFile); statErr == nil &&
+					fi.Size() > int64(logRotateMB)*1024*1024 {
+					// 用临时 logger 写错误，因为目标 logger 还没构造好——
+					// 写 stderr 是 best-effort（Windows VBS daemon 模式 stderr 可能无效），
+					// 至少在 systemd / 命令行手跑场景看得到。
+					if err := os.Rename(logFile, logFile+".1"); err != nil {
+						fmt.Fprintf(os.Stderr, "日志轮转失败 (%s → .1): %v\n", logFile, err)
+					}
+				}
 			}
 			lf, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 			if err != nil {
