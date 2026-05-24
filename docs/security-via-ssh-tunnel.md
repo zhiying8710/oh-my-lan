@@ -69,6 +69,35 @@ mstsc /v:127.0.0.1:13389
 只有"非 oml 客户端的第三方工具想访问 service"这一个场景被换成 SSH 跳板。装了
 oml 客户端的电脑日常使用 0 变化。
 
+## systemd 单元配置陷阱（5/25 调试经验）
+
+oml-server 跑在 systemd 下，需要 useradd/usermod/userdel 操作 `/etc/passwd` `/etc/shadow` `/home/oml-*`。
+如果用以下"看起来更安全"的组合**会失败**：
+
+```
+ProtectSystem=strict    # ✗ /etc/ RO → useradd cannot lock /etc/passwd
+ProtectSystem=full      # ✗ 同上，/etc/ 仍 RO
+ProtectHome=true        # ✗ /home/ 不可见 → useradd -m 无法 mkdir /home/<user>
+```
+
+哪怕 `ReadWritePaths=/etc /home` 也不能解决——`ProtectSystem`/`ProtectHome` 优先级更高。
+
+**正确组合**（见 `scripts/deploy/oml-server.service`）：
+
+```
+ProtectSystem=true                                  # /usr /boot 只读，/etc 仍 RW
+ProtectHome=false                                   # /home 可见可写
+ReadWritePaths=/var/lib/oml /etc/oml /etc /home    # 显式白名单兜底
+```
+
+诊断方法：在 oml-server 的 mount namespace 内 strace useradd：
+
+```bash
+PID=$(systemctl show -P MainPID oml-server)
+nsenter -t $PID -m -p strace -e openat,flock /usr/sbin/useradd -m -s /usr/sbin/nologin oml-debug
+# 看到 EROFS = ProtectSystem 太严；看到 /home 不存在 = ProtectHome=true
+```
+
 ## VPS 端部署
 
 ```bash

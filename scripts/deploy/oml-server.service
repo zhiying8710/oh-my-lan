@@ -1,0 +1,40 @@
+[Unit]
+Description=oh-my-lan server (control plane + chisel tunnel)
+Documentation=https://github.com/zhiying8710/oh-my-lan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/oml/omlserver --config /etc/oml/server.yaml
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# 历史教训（5/25 调试）：早期用了 ProtectSystem=strict + ProtectHome=true，本以为是
+# "更安全"的兜底，结果 oml 自己要 useradd oml-<id8> 受限 SSH 账号 → 调 sudo /usr/sbin/useradd
+# 时撞 "cannot lock /etc/passwd; try again later"——因为 strict 让 /etc RO，full 也是；
+# yes(=true) 才让 /etc RW。ProtectHome=true 同时让 /home 不可访问，useradd -m 失败。
+#
+# 正确组合：
+#   ProtectSystem=true      → /usr /boot 只读，/etc 可写（useradd 要写 /etc/passwd 等）
+#   ProtectHome=false       → useradd -m 要在 /home 创建子目录
+#   ReadWritePaths=/etc /home /var/lib/oml /etc/oml  ← 显式可写白名单
+#
+# 攻击面权衡：oml-server 进程能写 /etc。但 oml-server 跑 root，本来就能写任何地方；
+# 真正的隔离边界是 chisel R-listener 改 bind 127.0.0.1（见 docs/security-via-ssh-tunnel.md）。
+# systemd ProtectSystem 在这里的作用从"防 oml-server 被入侵后写文件"降级到"减少 systemd
+# audit log 噪音"。
+
+NoNewPrivileges=true
+ProtectSystem=true
+ReadWritePaths=/var/lib/oml /etc/oml /etc /home
+ProtectHome=false
+PrivateTmp=true
+
+# 关闭网络命名空间会破坏 chisel server——保留默认网络
+# 不开 PrivateNetwork
+
+[Install]
+WantedBy=multi-user.target
