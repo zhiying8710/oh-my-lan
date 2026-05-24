@@ -138,6 +138,21 @@
         </form>
       </details>
 
+      <!-- SSH 跳板信息卡片：仅浏览器同源模式显示（桌面客户端把私钥放本机自己用不到） -->
+      <details class="ssh-section" id="ssh-section" hidden>
+        <summary><h2 class="ssh-heading">SSH 跳板访问</h2></summary>
+        <p class="muted">
+          每台 device enroll 时自动生成 ed25519 keypair（私钥永远在客户端本机）。
+          server 在 VPS 上建受限 <code>oml-&lt;id8&gt;</code> 账号，<code>authorized_keys</code> 限定
+          只能 forward 到该 device 自己的 service public_port。
+          详见 <code>docs/security-via-ssh-tunnel.md</code>。
+        </p>
+        <table>
+          <thead><tr><th>device</th><th>SSH 用户名</th><th>状态</th><th>跳板命令模板</th></tr></thead>
+          <tbody id="ssh-tbody"></tbody>
+        </table>
+      </details>
+
       <!-- C1: server 进程实时日志（ring buffer 最近 N 条） -->
       <details class="logs-section">
         <summary><h2 class="logs-heading">服务端日志</h2></summary>
@@ -272,6 +287,15 @@
     <label>本地地址（仅端口号默认 127.0.0.1，如 22；或完整 host:port）
       <input name="local_addr" required placeholder="22 或 192.168.1.10:22">
     </label>
+    <!-- bind_local: 默认勾选，事故后强制安全默认。详见 docs/security-via-ssh-tunnel.md -->
+    <label class="svc-bind-row">
+      <input id="svc-bind-local" type="checkbox" checked>
+      <span>仅 VPS 本机访问（推荐）</span>
+    </label>
+    <p class="svc-bind-hint muted">
+      勾选 = chisel R-listener 绑 127.0.0.1，公网扫不到，需 <code>ssh -L</code> 跳板才能访问。<br>
+      <strong style="color:#c00">取消勾选 = 0.0.0.0 公网暴露——RDP/SSH/数据库等鉴权弱协议绝不要这样开</strong>（5/21 mini-pc 勒索事故的原因）。
+    </p>
     <div class="modal-actions">
       <button type="button" data-close>取消</button>
       <button type="submit">创建</button>

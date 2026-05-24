@@ -122,18 +122,52 @@ button[disabled]:hover {
 .autostart-label { font-weight: 500; color: var(--muted); font-size: 12px; }
 
 /* 「服务端」tab 内的服务端日志折叠区 (C1) */
-.logs-section {
+.logs-section, .ssh-section {
   margin-top: 24px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }
-.logs-section > summary { cursor: pointer; list-style: revert; }
-.logs-section .logs-heading {
+.logs-section > summary, .ssh-section > summary { cursor: pointer; list-style: revert; }
+.logs-section .logs-heading,
+.ssh-section .ssh-heading {
   display: inline;
   font-size: 16px;
   font-weight: 600;
   margin: 0;
 }
+
+/* SSH 跳板表格 + "复制命令" 按钮 */
+.ssh-section table { margin-top: 12px; width: 100%; border-collapse: collapse; }
+.ssh-section th, .ssh-section td {
+  padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 13px; text-align: left;
+}
+.ssh-section .mono { font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); }
+.ssh-section .copy-ssh-btn {
+  font-size: 11px; padding: 2px 8px; cursor: pointer; margin-left: 8px;
+}
+.ssh-section .ssh-locked {
+  color: #c00; font-weight: 600;
+}
+.ssh-section .ssh-ok {
+  color: var(--ok, #060); font-weight: 600;
+}
+
+/* service modal bind_local 行 */
+.svc-bind-row {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 0; padding: 0; cursor: pointer; user-select: none;
+}
+.svc-bind-row input[type="checkbox"] { width: 15px; height: 15px; margin: 0; cursor: pointer; }
+.svc-bind-row span { font-size: 13px; color: var(--fg); }
+.svc-bind-hint { font-size: 12px; margin: 2px 0 12px 22px; line-height: 1.5; }
+
+/* services 列表 bind_local 徽章 */
+.bind-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 500;
+}
+.bind-local { background: rgba(0,128,0,0.1); color: var(--ok, #060); }
+.bind-public { background: rgba(220,40,40,0.12); color: #c00; }
 .logs-pre {
   background: var(--bg);
   border: 1px solid var(--border);

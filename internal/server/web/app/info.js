@@ -7,6 +7,7 @@ import { els, escapeHTML, fmtTime, fmtUptime, inTauri, renderEmpty } from './cor
 import { api } from './api.js';
 import { getServerUrl } from './state.js';
 import { loadBarkSettings } from './bark.js';
+import { loadSSHKeys } from './ssh.js';
 
 export async function loadInfo() {
   const [info, metrics] = await Promise.all([
@@ -42,6 +43,8 @@ export async function loadInfo() {
   els.serverInfo.textContent = `chisel ${info.chisel_addr} · ${info.version}`;
   // 顺手刷新 bark 配置；catch 后丢掉错误让它独立于上面 metrics 失败
   loadBarkSettings().catch(() => { /* admin endpoint 失败不阻断 metrics */ });
+  // SSH 跳板信息——只在浏览器同源模式 unhide，桌面客户端 ssh.js 内部跳过
+  loadSSHKeys().catch(() => { /* SSH 段失败不阻断 metrics */ });
 }
 
 export async function loadAudit() {

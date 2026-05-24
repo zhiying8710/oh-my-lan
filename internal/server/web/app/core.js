@@ -62,6 +62,11 @@ export const els = {
   logsPre: document.getElementById('logs-pre'),
   logsRefreshBtn: document.getElementById('logs-refresh-btn'),
   logsStatus: document.getElementById('logs-status'),
+  // SSH 跳板信息（仅浏览器同源模式 unhide；桌面客户端不需要看）
+  sshSection: document.getElementById('ssh-section'),
+  sshTbody: document.getElementById('ssh-tbody'),
+  // service 发布表单 bind_local 复选框
+  svcBindLocal: document.getElementById('svc-bind-local'),
   serviceAddBtn: document.getElementById('service-add-btn'),
   forwardAddBtn: document.getElementById('forward-add-btn'),
   serviceModal: document.getElementById('service-modal'),

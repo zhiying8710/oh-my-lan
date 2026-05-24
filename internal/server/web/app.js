@@ -27,6 +27,7 @@ import {
   submitEnroll, showEnrollCard,
 } from './app/local.js';
 import { reportApiError } from './app/api.js';
+import { wireSSHCopyButton } from './app/ssh.js';
 
 // 让"submit form / row action 完成后刷新当前 tab"统一走 tabs.refreshActive，
 // 避免功能模块直接 import tabs 引入跨层依赖。
@@ -35,6 +36,7 @@ setForwardsRefresh(refreshActive);
 setActionsRefresh(refreshActive);
 
 bindAuthEvents();
+wireSSHCopyButton();
 
 els.tabs.forEach(t => t.addEventListener('click', () => activateTab(t.dataset.tab)));
 els.refreshBtn.addEventListener('click', refreshActive);
