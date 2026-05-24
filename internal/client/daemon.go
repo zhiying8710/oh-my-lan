@@ -215,6 +215,7 @@ func bootToSpecs(boot proto.BootstrapResponse) ([]tunnel.Remote, []tunnel.Local)
 			PublicPort: r.PublicPort,
 			LocalAddr:  r.LocalAddr,
 			Protocol:   r.Protocol,
+			BindLocal:  r.BindLocal,
 		})
 	}
 	locals := make([]tunnel.Local, 0, len(boot.Locals))
@@ -254,10 +255,18 @@ func normalizeChiselURL(addr string) string {
 	return "http://" + addr
 }
 
-// EnrollNew 是 enroll 流程的一次性 helper：发请求 → 把响应写入 state 文件。
-func EnrollNew(ctx context.Context, serverURL, token, deviceName, statePath string) (*State, error) {
+// EnrollNew 是 enroll 流程的一次性 helper。
+//
+// 流程：
+//  1. 客户端调 EnsureSSHKey 拿到本地 ed25519 公钥
+//  2. POST /api/devices/enroll 带 token + name + pubkey
+//  3. server 在 VPS 上建受限账号 + 写 authorized_keys + 返回 ssh_username/host/port
+//  4. 客户端把 ssh 信息 + chisel 信息一起落 state.json
+//
+// 注意 sshPubkey 必须是 EnsureSSHKey 返回的"oml-managed"那份，与用户 ~/.ssh/* 隔离。
+func EnrollNew(ctx context.Context, serverURL, token, deviceName, sshPubkey, statePath string) (*State, error) {
 	api := NewAPIClient(serverURL)
-	resp, err := api.Enroll(ctx, token, deviceName)
+	resp, err := api.Enroll(ctx, token, deviceName, sshPubkey)
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +277,9 @@ func EnrollNew(ctx context.Context, serverURL, token, deviceName, statePath stri
 		TunnelSecret:      resp.TunnelSecret,
 		ServerFingerprint: resp.ServerFingerprint,
 		ChiselAddr:        resp.ChiselAddr,
+		SSHUsername:       resp.SSHUsername,
+		SSHHost:           resp.SSHHost,
+		SSHPort:           resp.SSHPort,
 	}
 	if err := SaveState(statePath, s); err != nil {
 		return nil, err

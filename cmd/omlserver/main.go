@@ -520,6 +520,9 @@ func runServer(ctx context.Context, configPath string) error {
 		Store:               st,
 		Logger:              logger,
 		LogBuffer:           logBuf,
+		SSHHost:             cfg.SSHHost,
+		SSHPort:             cfg.SSHPort,
+		SSHAcctDisabled:     cfg.DisableSSHAcct,
 	})
 	if err != nil {
 		return err

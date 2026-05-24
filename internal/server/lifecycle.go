@@ -53,6 +53,47 @@ func (s *Server) runOfflineReaper(ctx context.Context) {
 // SessionReapInterval 是过期 session 清理周期。1 小时足够（session 默认 7 天）。
 const SessionReapInterval = time.Hour
 
+// SSHCleanupInterval / SSHGracePeriod 见 docs/security-via-ssh-tunnel.md。
+//   - 每 6 小时扫一次 ssh_locked_at < now-7d 的 device 真删
+//   - 7 天缓冲让 admin 误删后能"挽救"（手动恢复 authorized_keys + usermod -U）
+const (
+	SSHCleanupInterval = 6 * time.Hour
+	SSHGracePeriod     = 7 * 24 * time.Hour
+)
+
+// runSSHAccountReaper 周期性真删过期账号 + DB row。
+// 撤销 device 时立即 Lock + 标 ssh_locked_at；这里负责 grace period 后 userdel -r + DELETE FROM devices。
+func (s *Server) runSSHAccountReaper(ctx context.Context) {
+	t := time.NewTicker(SSHCleanupInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		cutoff := time.Now().Add(-SSHGracePeriod)
+		devices, err := s.store.ListSSHLockedBefore(ctx, cutoff)
+		if err != nil {
+			s.logger.Warn("ssh cleanup 列表失败", "err", err)
+			continue
+		}
+		for _, d := range devices {
+			if s.sshacct != nil {
+				if err := s.sshacct.Delete(ctx, d.ID); err != nil {
+					s.logger.Warn("ssh userdel 失败", "device", d.ID, "err", err)
+					continue
+				}
+			}
+			if err := s.store.DeleteDevice(ctx, d.ID); err != nil {
+				s.logger.Warn("ssh cleanup 删 device 失败", "device", d.ID, "err", err)
+				continue
+			}
+			s.logger.Info("ssh cleanup 完成", "device", d.ID, "user", d.SSHUsername)
+		}
+	}
+}
+
 // runSessionReaper 周期性清掉过期的登录 session。
 func (s *Server) runSessionReaper(ctx context.Context) {
 	// 启动时先跑一次，避免 server 长时间下线后第一次清理要等一小时

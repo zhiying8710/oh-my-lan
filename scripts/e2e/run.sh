@@ -47,6 +47,8 @@ port_pool:
 log:
   level: "info"
   format: "text"
+# e2e 不在真 VPS 上跑——禁掉 VPS 账号自动管理（生产 must false）
+disable_ssh_acct: true
 EOF
 "$ROOT/bin/omlserver" --config "$WORK/server/server.yaml" > "$WORK/server.log" 2>&1 &
 SERVER_PID=$!

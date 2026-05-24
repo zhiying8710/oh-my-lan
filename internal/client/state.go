@@ -21,6 +21,11 @@ type State struct {
 	TunnelSecret      string `json:"tunnel_secret"`
 	ServerFingerprint string `json:"server_fingerprint"`
 	ChiselAddr        string `json:"chisel_addr"`
+	// SSH 跳板信息——server 在 enroll 响应里给的，让客户端能自己构出 `ssh -L ...` 命令。
+	// 见 docs/security-via-ssh-tunnel.md。私钥路径 = filepath.Join(dataDir, "ssh_key")。
+	SSHUsername string `json:"ssh_username"`
+	SSHHost     string `json:"ssh_host"`
+	SSHPort     int    `json:"ssh_port"`
 }
 
 // ErrStateMissing 表示尚未 enroll 过。

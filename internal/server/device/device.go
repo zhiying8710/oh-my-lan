@@ -7,6 +7,7 @@
 package device
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/zhiying8710/oh-my-lan/internal/enroll"
 	"github.com/zhiying8710/oh-my-lan/internal/proto"
 	"github.com/zhiying8710/oh-my-lan/internal/server/api"
+	"github.com/zhiying8710/oh-my-lan/internal/server/sshacct"
 	"github.com/zhiying8710/oh-my-lan/internal/store"
 	"github.com/zhiying8710/oh-my-lan/internal/tunnel"
 )
@@ -30,6 +32,10 @@ type Handler struct {
 	Auditor             *api.Auditor
 	Logger              *slog.Logger
 	ChiselAdvertiseAddr string
+	// SSH 跳板：nil 表示测试场景（不动 /etc/passwd）
+	SSHAcct *sshacct.Manager
+	SSHHost string // enroll 响应里给客户端的 ssh host
+	SSHPort int    // enroll 响应里给客户端的 ssh port
 }
 
 // deviceFromContext 从 r.Context() 拿 store.Device。middleware（api.AuthDeviceMiddleware）
@@ -67,6 +73,12 @@ func (h *Handler) HandleEnrollDevice(w http.ResponseWriter, r *http.Request) {
 		api.WriteError(w, http.StatusBadRequest, "请求体非法 JSON: "+err.Error())
 		return
 	}
+	// 强制 SSH key——事故后不再支持"裸 enroll"。客户端自动生成 ed25519 + 上传公钥。
+	if err := sshacct.ValidatePubkey(req.SSHPubkey); err != nil {
+		api.WriteError(w, http.StatusBadRequest, "ssh_pubkey 必填且格式合法（ssh-ed25519 单行）: "+err.Error())
+		return
+	}
+
 	dev, err := h.Enroll.EnrollDevice(r.Context(), req.Token, strings.TrimSpace(req.DeviceName))
 	switch {
 	case errors.Is(err, enroll.ErrTokenInvalid), errors.Is(err, enroll.ErrTokenExpired):
@@ -86,8 +98,30 @@ func (h *Handler) HandleEnrollDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// VPS 端建受限 SSH 账号 + 写 authorized_keys。SSHAcct=nil 仅测试。
+	var sshUsername string
+	if h.SSHAcct != nil {
+		u, err := h.SSHAcct.Provision(r.Context(), dev.DeviceID, req.SSHPubkey, nil)
+		if err != nil {
+			// rollback：刚 enroll 出来的 device 删掉，chisel user 也撤销
+			h.Tunnel.RemoveDevice(dev.DeviceID)
+			_ = h.Store.DeleteDevice(r.Context(), dev.DeviceID)
+			api.WriteError(w, http.StatusInternalServerError, "provision SSH 账号失败: "+err.Error())
+			return
+		}
+		sshUsername = u
+	}
+
+	// 把 SSH 信息持久化到 device row 上（DeviceID / TunnelSecret 已写）。
+	// 注意 Enroll.EnrollDevice 是 CreateDevice，但没填 ssh_pubkey/ssh_username——
+	// 这里走 UPDATE 补上。
+	if _, err := h.Store.GetDeviceByID(r.Context(), dev.DeviceID); err == nil {
+		// 走 raw exec：避免给 Store 加一个 SetDeviceSSH 方法仅一处用
+		_ = updateDeviceSSH(r.Context(), h.Store, dev.DeviceID, req.SSHPubkey, sshUsername)
+	}
+
 	h.Auditor.Write(r.Context(), "system", api.ActionDeviceEnroll, dev.DeviceID,
-		map[string]any{"device_name": dev.DeviceName})
+		map[string]any{"device_name": dev.DeviceName, "ssh_username": sshUsername})
 
 	api.WriteJSON(w, http.StatusCreated, proto.EnrollDeviceResponse{
 		DeviceID:          dev.DeviceID,
@@ -95,7 +129,16 @@ func (h *Handler) HandleEnrollDevice(w http.ResponseWriter, r *http.Request) {
 		TunnelSecret:      dev.TunnelSecret,
 		ServerFingerprint: h.Tunnel.Fingerprint(),
 		ChiselAddr:        h.ChiselAdvertiseAddr,
+		SSHUsername:       sshUsername,
+		SSHHost:           h.SSHHost,
+		SSHPort:           h.SSHPort,
 	})
+}
+
+// updateDeviceSSH: 给 device 行补 ssh_pubkey / ssh_username。enroll 走 enroll.Service.EnrollDevice
+// 内部 CreateDevice，没暴露 SSH 字段；这里 raw UPDATE 一次。
+func updateDeviceSSH(ctx context.Context, st *store.Store, deviceID, pubkey, username string) error {
+	return st.SetDeviceSSH(ctx, deviceID, pubkey, username)
 }
 
 // POST /api/services  (device auth)
@@ -131,6 +174,11 @@ func (h *Handler) HandleAddService(w http.ResponseWriter, r *http.Request) {
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// BindLocal 默认 true（事故后强制安全默认）。客户端必须显式 false 才能 0.0.0.0 暴露。
+	bindLocal := true
+	if req.BindLocal != nil {
+		bindLocal = *req.BindLocal
+	}
 	svc := store.Service{
 		ID:         id,
 		DeviceID:   dev.ID,
@@ -139,6 +187,7 @@ func (h *Handler) HandleAddService(w http.ResponseWriter, r *http.Request) {
 		LocalAddr:  req.LocalAddr,
 		PublicPort: port,
 		Enabled:    true,
+		BindLocal:  bindLocal,
 		CreatedAt:  time.Now().UTC(),
 	}
 	if err := h.Store.CreateService(r.Context(), svc); err != nil {
@@ -150,7 +199,7 @@ func (h *Handler) HandleAddService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Auditor.Write(r.Context(), api.DeviceActor(dev.ID), api.ActionServiceAdd, svc.ID,
-		map[string]any{"name": svc.Name, "protocol": svc.Protocol, "public_port": svc.PublicPort})
+		map[string]any{"name": svc.Name, "protocol": svc.Protocol, "public_port": svc.PublicPort, "bind_local": svc.BindLocal})
 	api.WriteJSON(w, http.StatusCreated, api.ToServiceDTO(svc))
 }
 
@@ -269,6 +318,7 @@ func (h *Handler) HandleBootstrap(w http.ResponseWriter, r *http.Request) {
 			PublicPort: sv.PublicPort,
 			LocalAddr:  sv.LocalAddr,
 			Protocol:   sv.Protocol,
+			BindLocal:  sv.BindLocal,
 		})
 	}
 	for _, f := range myForwards {

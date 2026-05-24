@@ -20,8 +20,14 @@ import (
 	"github.com/zhiying8710/oh-my-lan/internal/tunnel"
 )
 
+// testSSHPubkey 是 enroll 测试用的合法形态 ed25519 公钥。
+// enroll handler 现在强制要求 ssh_pubkey；测试只验证 schema/handler 行为，
+// 不真去 useradd —— newTestServer 不挂 SSHAcct（nil），handler 跳过 Provision。
+const testSSHPubkey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBeAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMno test@oml"
+
 // newTestServer 拼装一个未真正监听的 Server，仅注入 mux 给 httptest 用。
 // chisel tunnel 仅用其 AddDevice / Fingerprint 等内存方法，不开监听。
+// sshacct 留 nil → handler 跳过真 useradd，保持单元测试不依赖系统账号。
 func newTestServer(t *testing.T) (*httptest.Server, *Server) {
 	t.Helper()
 	st, err := store.Open(context.Background(), ":memory:")
@@ -65,7 +71,7 @@ func TestFullEnrollAndServiceFlow(t *testing.T) {
 	// 2. enroll
 	enrollResp := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll",
 		"",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tokResp.Token, DeviceName: "test-dev"}),
+		toJSON(t, proto.EnrollDeviceRequest{Token: tokResp.Token, DeviceName: "test-dev", SSHPubkey: testSSHPubkey}),
 		http.StatusCreated)
 	if enrollResp.DeviceID == "" || enrollResp.TunnelSecret == "" {
 		t.Fatalf("enroll 返回不完整: %+v", enrollResp)
@@ -120,7 +126,7 @@ func TestAuthRejectsBadBearer(t *testing.T) {
 func TestEnrollRejectsBadToken(t *testing.T) {
 	ts, _ := newTestServer(t)
 	doRaw(t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: "wrong", DeviceName: "x"}),
+		toJSON(t, proto.EnrollDeviceRequest{Token: "wrong", DeviceName: "x", SSHPubkey: testSSHPubkey}),
 		http.StatusUnauthorized)
 }
 
@@ -129,7 +135,7 @@ func TestServiceEnableDisable(t *testing.T) {
 
 	tokR := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	dev := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tokR.Token, DeviceName: "x"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tokR.Token, DeviceName: "x", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearer := "Bearer " + dev.DeviceID + "." + dev.TunnelSecret
 
 	svc := mustDoJSON[proto.ServiceDTO](t, ts, http.MethodPost, "/api/services", bearer,
@@ -167,9 +173,9 @@ func TestForwardEnableDisable(t *testing.T) {
 	tA := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	tB := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	a := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "A"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "A", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	b := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "B"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "B", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearerA := "Bearer " + a.DeviceID + "." + a.TunnelSecret
 	bearerB := "Bearer " + b.DeviceID + "." + b.TunnelSecret
 
@@ -206,9 +212,9 @@ func TestForwardCRUD_HappyPath(t *testing.T) {
 	tA := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	tB := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	a := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "A"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "A", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	b := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "B"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "B", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearerA := "Bearer " + a.DeviceID + "." + a.TunnelSecret
 	bearerB := "Bearer " + b.DeviceID + "." + b.TunnelSecret
 
@@ -289,9 +295,9 @@ func TestAdminEndpoints_AuthAndListings(t *testing.T) {
 	tA := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	tB := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	a := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "alpha"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "alpha", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	b := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "beta"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "beta", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearerB := "Bearer " + b.DeviceID + "." + b.TunnelSecret
 	svc := mustDoJSON[proto.ServiceDTO](t, ts, http.MethodPost, "/api/services", bearerB,
 		toJSON(t, proto.AddServiceRequest{Name: "ssh", Protocol: "tcp", LocalAddr: "127.0.0.1:22"}),
@@ -455,7 +461,7 @@ func TestAdminMetricsAndAudit(t *testing.T) {
 	// 通过 admin API 创建一个 device + service，触发 audit 写入
 	tok := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/admin/enroll/tokens", bearer, "", http.StatusCreated)
 	dev := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "m-dev"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "m-dev", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	svc := mustDoJSON[proto.ServiceDTO](t, ts, http.MethodPost, "/api/admin/services", bearer,
 		toJSON(t, proto.AdminAddServiceRequest{DeviceID: dev.DeviceID, Name: "ssh", Protocol: "tcp", LocalAddr: "127.0.0.1:22"}),
 		http.StatusCreated)
@@ -525,7 +531,7 @@ func TestAdminWriteEndpoints(t *testing.T) {
 	}
 	// 注册一个设备
 	dev := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "w-dev"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "w-dev", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 
 	// admin 代发服务
 	svc := mustDoJSON[proto.ServiceDTO](t, ts, http.MethodPost, "/api/admin/services", bearer,
@@ -549,7 +555,7 @@ func TestAdminWriteEndpoints(t *testing.T) {
 	// 第二个设备 + admin 代加 forward
 	tok2 := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/admin/enroll/tokens", bearer, "", http.StatusCreated)
 	dev2 := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok2.Token, DeviceName: "w-dev2"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok2.Token, DeviceName: "w-dev2", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	fwd := mustDoJSON[proto.ForwardDTO](t, ts, http.MethodPost, "/api/admin/forwards", bearer,
 		toJSON(t, proto.AdminAddForwardRequest{
 			OwnerDeviceID: dev2.DeviceID, RemoteServiceID: svc.ID, LocalPort: 8089,
@@ -596,7 +602,7 @@ func TestUDPServiceFlow(t *testing.T) {
 
 	tok := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	dev := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "udp-dev"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "udp-dev", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearer := "Bearer " + dev.DeviceID + "." + dev.TunnelSecret
 
 	// UDP 服务能正常创建
@@ -623,7 +629,7 @@ func TestForwardRejectsNonExistentRemote(t *testing.T) {
 	ts, _ := newTestServer(t)
 	tA := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	a := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "A"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "A", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearer := "Bearer " + a.DeviceID + "." + a.TunnelSecret
 
 	doRaw(t, ts, http.MethodPost, "/api/forwards", bearer,
@@ -638,9 +644,9 @@ func TestCrossDeviceDeleteReturns404(t *testing.T) {
 	tok2 := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 
 	a := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok1.Token, DeviceName: "a"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok1.Token, DeviceName: "a", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	b := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok2.Token, DeviceName: "b"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok2.Token, DeviceName: "b", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 
 	bearerA := "Bearer " + a.DeviceID + "." + a.TunnelSecret
 	bearerB := "Bearer " + b.DeviceID + "." + b.TunnelSecret

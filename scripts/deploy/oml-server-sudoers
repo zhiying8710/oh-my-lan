@@ -1,0 +1,20 @@
+# /etc/sudoers.d/oml-server
+#
+# oml-server 进程（以 root 跑）通过 sudo -n 调下面的命令管理 oml-* 受限 SSH 账号。
+# 严格白名单：只允许操作 oml- 前缀 + 8 位 hex 后缀的账号，确保 admin token 泄漏
+# 后攻击者也无法通过 oml HTTP API 操控 VPS 系统的其它账号。
+#
+# 部署：
+#   cp scripts/deploy/oml-server-sudoers /etc/sudoers.d/oml-server
+#   chmod 440 /etc/sudoers.d/oml-server
+#   visudo -c   # 校验语法
+#
+# 与 internal/server/sshacct/sshacct.go 的 absoluteCommandPath 必须一致。
+
+Cmnd_Alias OML_USERADD = /usr/sbin/useradd -m -s /usr/sbin/nologin oml-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]
+Cmnd_Alias OML_USERMOD = /usr/sbin/usermod -L oml-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]
+Cmnd_Alias OML_USERDEL = /usr/sbin/userdel -r oml-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]
+Cmnd_Alias OML_PKILL   = /usr/bin/pkill -u oml-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]
+Cmnd_Alias OML_CHOWN   = /usr/bin/chown -R oml-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9]\:oml-[a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9][a-f0-9] /home/oml-*/*
+
+root ALL=(ALL) NOPASSWD: OML_USERADD, OML_USERMOD, OML_USERDEL, OML_PKILL, OML_CHOWN

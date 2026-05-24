@@ -16,7 +16,10 @@ type Service struct {
 	LocalAddr  string
 	PublicPort int
 	Enabled    bool
-	CreatedAt  time.Time
+	// BindLocal: chisel R-listener 是否仅绑 VPS 127.0.0.1。默认 true（安全），
+	// 公网扫不到，需要 ssh -L 跳板才能访问。false=0.0.0.0 公网（高危，事故口）。
+	BindLocal bool
+	CreatedAt time.Time
 }
 
 const (
@@ -26,10 +29,10 @@ const (
 
 func (s *Store) CreateService(ctx context.Context, sv Service) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO services(id, device_id, name, protocol, local_addr, public_port, enabled, created_at)
-		VALUES(?,?,?,?,?,?,?,?)`,
+		INSERT INTO services(id, device_id, name, protocol, local_addr, public_port, enabled, bind_local, created_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`,
 		sv.ID, sv.DeviceID, sv.Name, sv.Protocol, sv.LocalAddr,
-		sv.PublicPort, boolToInt(sv.Enabled),
+		sv.PublicPort, boolToInt(sv.Enabled), boolToInt(sv.BindLocal),
 		sv.CreatedAt.UTC().Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -40,14 +43,14 @@ func (s *Store) CreateService(ctx context.Context, sv Service) error {
 
 func (s *Store) GetService(ctx context.Context, id string) (Service, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, device_id, name, protocol, local_addr, public_port, enabled, created_at
+		SELECT id, device_id, name, protocol, local_addr, public_port, enabled, bind_local, created_at
 		FROM services WHERE id = ?`, id)
 	return scanService(row)
 }
 
 func (s *Store) ListServicesByDevice(ctx context.Context, deviceID string) ([]Service, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, device_id, name, protocol, local_addr, public_port, enabled, created_at
+		SELECT id, device_id, name, protocol, local_addr, public_port, enabled, bind_local, created_at
 		FROM services WHERE device_id = ? ORDER BY created_at ASC`, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("列设备服务: %w", err)
@@ -58,7 +61,7 @@ func (s *Store) ListServicesByDevice(ctx context.Context, deviceID string) ([]Se
 
 func (s *Store) ListAllServices(ctx context.Context) ([]Service, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, device_id, name, protocol, local_addr, public_port, enabled, created_at
+		SELECT id, device_id, name, protocol, local_addr, public_port, enabled, bind_local, created_at
 		FROM services ORDER BY created_at ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("列全部服务: %w", err)
@@ -85,13 +88,13 @@ func (s *Store) ListServicesJoined(ctx context.Context, deviceID string) ([]Serv
 	)
 	if deviceID == "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT s.id, s.device_id, s.name, s.protocol, s.local_addr, s.public_port, s.enabled, s.created_at,
+			SELECT s.id, s.device_id, s.name, s.protocol, s.local_addr, s.public_port, s.enabled, s.bind_local, s.created_at,
 			       d.name, s.last_probe_at, s.last_probe_ok
 			FROM services s JOIN devices d ON s.device_id = d.id
 			ORDER BY s.created_at ASC`)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT s.id, s.device_id, s.name, s.protocol, s.local_addr, s.public_port, s.enabled, s.created_at,
+			SELECT s.id, s.device_id, s.name, s.protocol, s.local_addr, s.public_port, s.enabled, s.bind_local, s.created_at,
 			       d.name, s.last_probe_at, s.last_probe_ok
 			FROM services s JOIN devices d ON s.device_id = d.id
 			WHERE s.device_id = ?
@@ -107,15 +110,17 @@ func (s *Store) ListServicesJoined(ctx context.Context, deviceID string) ([]Serv
 		var (
 			it         ServiceListItem
 			enabled    int
+			bindLocal  int
 			created    string
 			probeAtRaw sql.NullString
 			probeOK    int
 		)
 		if err := rows.Scan(&it.ID, &it.DeviceID, &it.Name, &it.Protocol, &it.LocalAddr,
-			&it.PublicPort, &enabled, &created, &it.DeviceName, &probeAtRaw, &probeOK); err != nil {
+			&it.PublicPort, &enabled, &bindLocal, &created, &it.DeviceName, &probeAtRaw, &probeOK); err != nil {
 			return nil, fmt.Errorf("扫描 service+device 行: %w", err)
 		}
 		it.Enabled = enabled != 0
+		it.BindLocal = bindLocal != 0
 		c, err := time.Parse(time.RFC3339Nano, created)
 		if err != nil {
 			return nil, fmt.Errorf("解析 created_at: %w", err)
@@ -197,18 +202,20 @@ func boolToInt(b bool) int {
 
 func scanService(row *sql.Row) (Service, error) {
 	var (
-		sv      Service
-		enabled int
-		created string
+		sv        Service
+		enabled   int
+		bindLocal int
+		created   string
 	)
 	if err := row.Scan(&sv.ID, &sv.DeviceID, &sv.Name, &sv.Protocol, &sv.LocalAddr,
-		&sv.PublicPort, &enabled, &created); err != nil {
+		&sv.PublicPort, &enabled, &bindLocal, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return sv, ErrNotFound
 		}
 		return sv, fmt.Errorf("读 service: %w", err)
 	}
 	sv.Enabled = enabled != 0
+	sv.BindLocal = bindLocal != 0
 	c, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {
 		return sv, fmt.Errorf("解析 created_at: %w", err)
@@ -221,15 +228,17 @@ func collectServices(rows *sql.Rows) ([]Service, error) {
 	var out []Service
 	for rows.Next() {
 		var (
-			sv      Service
-			enabled int
-			created string
+			sv        Service
+			enabled   int
+			bindLocal int
+			created   string
 		)
 		if err := rows.Scan(&sv.ID, &sv.DeviceID, &sv.Name, &sv.Protocol, &sv.LocalAddr,
-			&sv.PublicPort, &enabled, &created); err != nil {
+			&sv.PublicPort, &enabled, &bindLocal, &created); err != nil {
 			return nil, fmt.Errorf("扫描 service 行: %w", err)
 		}
 		sv.Enabled = enabled != 0
+		sv.BindLocal = bindLocal != 0
 		c, err := time.Parse(time.RFC3339Nano, created)
 		if err != nil {
 			return nil, fmt.Errorf("解析 created_at: %w", err)
@@ -238,4 +247,18 @@ func collectServices(rows *sql.Rows) ([]Service, error) {
 		out = append(out, sv)
 	}
 	return out, rows.Err()
+}
+
+// SetServiceBindLocal 切换 service 的 bind_local（admin "锁回本机" 按钮调用）。
+func (s *Store) SetServiceBindLocal(ctx context.Context, id string, bindLocal bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE services SET bind_local = ? WHERE id = ?`,
+		boolToInt(bindLocal), id)
+	if err != nil {
+		return fmt.Errorf("更新 service bind_local: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }

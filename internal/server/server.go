@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/zhiying8710/oh-my-lan/internal/logging"
 	"github.com/zhiying8710/oh-my-lan/internal/server/api"
 	"github.com/zhiying8710/oh-my-lan/internal/server/prober"
+	"github.com/zhiying8710/oh-my-lan/internal/server/sshacct"
 	"github.com/zhiying8710/oh-my-lan/internal/store"
 	"github.com/zhiying8710/oh-my-lan/internal/tunnel"
 )
@@ -41,6 +43,10 @@ type Options struct {
 	Store               *store.Store
 	Logger              *slog.Logger
 	LogBuffer           *logging.RingBuffer // 可选；非 nil 时 /api/admin/logs 暴露最近日志
+	// SSH 跳板配置——见 docs/security-via-ssh-tunnel.md
+	SSHHost           string          // VPS 公网 host，客户端 enroll 后用于 ssh -L 跳板。空时回退 ChiselAdvertiseAddr 的 host
+	SSHPort           int             // VPS sshd 端口。默认 22
+	SSHAcctDisabled   bool            // 测试场景关掉账号自动管理（测试场景没 sudo）
 }
 
 // Server 是控制平面 + 隧道的组合体。
@@ -56,6 +62,9 @@ type Server struct {
 	loginRL *api.LoginRateLimiter // 登录失败 5/min/IP，见 api/api.go
 	logBuf  *logging.RingBuffer // C1: server 日志环形 buffer；可能为 nil（测试 / cli 入口未连）
 	auditor *api.Auditor        // 包装 (store + logger) 写一条 audit 记录；s.audit 委托给它
+	sshacct *sshacct.Manager    // VPS 受限 SSH 账号管理；nil 表示测试场景（不动 /etc/passwd）
+	sshHost string              // 给 enroll 响应的 ssh host（公网 IP / 域名）
+	sshPort int                 // 给 enroll 响应的 ssh port（默认 22）
 
 	httpSrv *http.Server
 }
@@ -87,6 +96,22 @@ func New(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("构建 tunnel server: %w", err)
 	}
 
+	// SSH 跳板 host：默认从 ChiselAdvertiseAddr 取（"vps.example.com:58443" → "vps.example.com"）。
+	sshHost := opts.SSHHost
+	if sshHost == "" {
+		if h, _, err := net.SplitHostPort(advertise); err == nil {
+			sshHost = h
+		}
+	}
+	sshPort := opts.SSHPort
+	if sshPort == 0 {
+		sshPort = 22
+	}
+	var sshMgr *sshacct.Manager
+	if !opts.SSHAcctDisabled {
+		sshMgr = sshacct.New(opts.Logger)
+	}
+
 	return &Server{
 		logger:              opts.Logger,
 		store:               opts.Store,
@@ -98,6 +123,9 @@ func New(opts Options) (*Server, error) {
 		loginRL:             api.NewLoginRateLimiter(),
 		logBuf:              opts.LogBuffer,
 		auditor:             &api.Auditor{Store: opts.Store, Logger: opts.Logger},
+		sshacct:             sshMgr,
+		sshHost:             sshHost,
+		sshPort:             sshPort,
 		httpSrv: &http.Server{
 			Addr:              opts.ListenAddr,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -128,6 +156,7 @@ func (s *Server) Start(ctx context.Context) error {
 	defer cancelReaper()
 	go s.runOfflineReaper(reaperCtx)
 	go s.runSessionReaper(reaperCtx)
+	go s.runSSHAccountReaper(reaperCtx)
 	go prober.New(s.store, s.logger).Run(reaperCtx)
 
 	errCh := make(chan error, 2)

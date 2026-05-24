@@ -15,6 +15,14 @@ type ServerConfig struct {
 	DataDir             string    `yaml:"data_dir"`
 	PortPool            PortPool  `yaml:"port_pool"`
 	Log                 LogConfig `yaml:"log"`
+	// SSH 跳板：客户端 enroll 后用 `ssh -L` 通过这里跳进 VPS 内 chisel R-listener。
+	// SSHHost 空时回退 ChiselAdvertiseAddr 的 host。SSHPort 默认 22。
+	SSHHost string `yaml:"ssh_host"`
+	SSHPort int    `yaml:"ssh_port"`
+	// DisableSSHAcct: 关掉 VPS 账号自动管理（不调 useradd/usermod）。
+	// 用途：本地开发 / e2e 跑 server 时没有 sudo 权限；CI 容器里也常这样。
+	// 生产**必须**保持 false（默认）。
+	DisableSSHAcct bool `yaml:"disable_ssh_acct"`
 }
 
 type PortPool struct {

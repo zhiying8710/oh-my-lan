@@ -19,11 +19,11 @@ func TestDiscover_FiltersSelfAndDisabled(t *testing.T) {
 	tB := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	tC := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	a := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "alpha"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tA.Token, DeviceName: "alpha", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	b := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "beta"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tB.Token, DeviceName: "beta", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	c := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tC.Token, DeviceName: "gamma"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tC.Token, DeviceName: "gamma", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearerA := "Bearer " + a.DeviceID + "." + a.TunnelSecret
 	bearerB := "Bearer " + b.DeviceID + "." + b.TunnelSecret
 	bearerC := "Bearer " + c.DeviceID + "." + c.TunnelSecret
@@ -83,7 +83,7 @@ func TestDiscover_EmptyMesh(t *testing.T) {
 	ts, _ := newTestServer(t)
 	tok := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
 	d := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
-		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "solo"}), http.StatusCreated)
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "solo", SSHPubkey: testSSHPubkey}), http.StatusCreated)
 	bearer := "Bearer " + d.DeviceID + "." + d.TunnelSecret
 
 	got := mustDoJSON[proto.DiscoverDTO](t, ts, http.MethodGet, "/api/devices/me/discover", bearer, "", http.StatusOK)

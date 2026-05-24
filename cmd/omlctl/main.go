@@ -129,14 +129,27 @@ func newEnrollCmd(configPath *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			// 准备 ed25519 keypair（事故后强制：所有 device 必须有 SSH 跳板凭据）。
+			// 历史教训：mini-pc RDP 暴露 0.0.0.0:40000 被勒索。现在 bind_local=true 默认，
+			// 用户必须通过 ssh -L 跳板才能访问 service——SSH 凭据由这里生成。
+			privPath, pubLine, err := client.EnsureSSHKey(cfg.DataDir)
+			if err != nil {
+				return fmt.Errorf("准备 SSH key: %w", err)
+			}
 			statePath := client.StatePath(cfg.DataDir)
-			state, err := client.EnrollNew(cmd.Context(), serverURL, token, deviceName, statePath)
+			state, err := client.EnrollNew(cmd.Context(), serverURL, token, deviceName, pubLine, statePath)
 			if err != nil {
 				return err
 			}
-			fmt.Printf("注册成功：device_id=%s name=%s\n", state.DeviceID, state.DeviceName)
-			fmt.Printf("chisel 入口=%s  fingerprint=%s\n", state.ChiselAddr, state.ServerFingerprint)
-			fmt.Printf("state 文件已写入：%s\n", statePath)
+			fmt.Printf("✓ 注册成功\n")
+			fmt.Printf("  device_id=%s name=%s\n", state.DeviceID, state.DeviceName)
+			fmt.Printf("  chisel 入口=%s  fingerprint=%s\n", state.ChiselAddr, state.ServerFingerprint)
+			fmt.Printf("  state 文件：%s\n", statePath)
+			fmt.Printf("\nSSH 跳板凭据已建立：\n")
+			fmt.Printf("  ssh -i %s -p %d %s@%s\n", privPath, state.SSHPort, state.SSHUsername, state.SSHHost)
+			fmt.Printf("  （后续访问 service 用：ssh -i %s -N -L <本机端口>:127.0.0.1:<public_port> %s@%s -p %d）\n",
+				privPath, state.SSHUsername, state.SSHHost, state.SSHPort)
 			return nil
 		},
 	}

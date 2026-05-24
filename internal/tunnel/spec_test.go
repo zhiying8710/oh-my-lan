@@ -27,17 +27,25 @@ func TestRemote_Validate(t *testing.T) {
 
 func TestRemote_ToChiselSpec(t *testing.T) {
 	cases := []struct {
+		name string
 		r    Remote
 		want string
 	}{
-		{Remote{PublicPort: 40001, LocalAddr: "127.0.0.1:22", Protocol: "tcp"}, "R:0.0.0.0:40001:127.0.0.1:22"},
-		{Remote{PublicPort: 40002, LocalAddr: "127.0.0.1:53", Protocol: "udp"}, "R:0.0.0.0:40002:127.0.0.1:53/udp"},
-		{Remote{PublicPort: 40003, LocalAddr: "127.0.0.1:80", Protocol: "TCP"}, "R:0.0.0.0:40003:127.0.0.1:80"},
+		// BindLocal=true 即"安全默认"：listener 在 VPS 上仅本机可达，公网扫不到
+		{"tcp bind-local", Remote{PublicPort: 40001, LocalAddr: "127.0.0.1:22", Protocol: "tcp", BindLocal: true},
+			"R:127.0.0.1:40001:127.0.0.1:22"},
+		{"udp bind-local", Remote{PublicPort: 40002, LocalAddr: "127.0.0.1:53", Protocol: "udp", BindLocal: true},
+			"R:127.0.0.1:40002:127.0.0.1:53/udp"},
+		// BindLocal=false → 0.0.0.0，仅在用户主动 opt-out 时才走（高危）
+		{"tcp public", Remote{PublicPort: 40003, LocalAddr: "127.0.0.1:80", Protocol: "TCP", BindLocal: false},
+			"R:0.0.0.0:40003:127.0.0.1:80"},
 	}
 	for _, c := range cases {
-		if got := c.r.ToChiselSpec(); got != c.want {
-			t.Errorf("ToChiselSpec(%+v)=%q want %q", c.r, got, c.want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.r.ToChiselSpec(); got != c.want {
+				t.Errorf("ToChiselSpec(%+v)=%q want %q", c.r, got, c.want)
+			}
+		})
 	}
 }
 

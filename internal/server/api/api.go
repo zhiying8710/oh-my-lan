@@ -102,6 +102,7 @@ func ToServiceDTO(sv store.Service) proto.ServiceDTO {
 		LocalAddr:  sv.LocalAddr,
 		PublicPort: sv.PublicPort,
 		Enabled:    sv.Enabled,
+		BindLocal:  sv.BindLocal,
 		CreatedAt:  sv.CreatedAt,
 	}
 }

@@ -38,10 +38,11 @@ func NewAPIClient(serverURL string) *APIClient {
 }
 
 // Enroll 用一次性 token 把当前设备注册到服务端。
-func (c *APIClient) Enroll(ctx context.Context, token, deviceName string) (proto.EnrollDeviceResponse, error) {
+// sshPubkey 是客户端事先 EnsureSSHKey 拿到的 OpenSSH 单行公钥；server 用它建 VPS 受限账号。
+func (c *APIClient) Enroll(ctx context.Context, token, deviceName, sshPubkey string) (proto.EnrollDeviceResponse, error) {
 	var out proto.EnrollDeviceResponse
 	err := c.do(ctx, http.MethodPost, "/api/devices/enroll", false,
-		proto.EnrollDeviceRequest{Token: token, DeviceName: deviceName}, &out)
+		proto.EnrollDeviceRequest{Token: token, DeviceName: deviceName, SSHPubkey: sshPubkey}, &out)
 	return out, err
 }
 

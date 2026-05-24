@@ -19,6 +19,7 @@ import (
 	"github.com/zhiying8710/oh-my-lan/internal/logging"
 	"github.com/zhiying8710/oh-my-lan/internal/proto"
 	"github.com/zhiying8710/oh-my-lan/internal/server/api"
+	"github.com/zhiying8710/oh-my-lan/internal/server/sshacct"
 	"github.com/zhiying8710/oh-my-lan/internal/store"
 	"github.com/zhiying8710/oh-my-lan/internal/tunnel"
 	"github.com/zhiying8710/oh-my-lan/internal/version"
@@ -46,6 +47,8 @@ type Handler struct {
 	LogBufFn            func() *logging.RingBuffer
 	ChiselAdvertiseAddr string
 	StartedAt           time.Time
+	// SSH 跳板账号管理。nil = 测试场景。
+	SSHAcct *sshacct.Manager
 }
 
 // AuthMiddleware: admin 子包对外暴露的 middleware，包了 api.AuthAdminMiddleware。
@@ -112,6 +115,7 @@ func (h *Handler) HandleAdminListServices(w http.ResponseWriter, r *http.Request
 			LocalAddr:   it.LocalAddr,
 			PublicPort:  it.PublicPort,
 			Enabled:     it.Enabled,
+			BindLocal:   it.BindLocal,
 			CreatedAt:   it.CreatedAt,
 			LastProbeAt: it.LastProbeAt,
 			LastProbeOK: it.LastProbeOK,
@@ -160,10 +164,16 @@ func (h *Handler) HandleAdminCreateService(w http.ResponseWriter, r *http.Reques
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// BindLocal 默认 true（安全默认）。admin 显式 false 才会暴露公网（需 UI 二次确认）。
+	bindLocal := true
+	if req.BindLocal != nil {
+		bindLocal = *req.BindLocal
+	}
 	svc := store.Service{
 		ID: id, DeviceID: req.DeviceID, Name: req.Name,
 		Protocol: req.Protocol, LocalAddr: req.LocalAddr,
-		PublicPort: port, Enabled: true, CreatedAt: time.Now().UTC(),
+		PublicPort: port, Enabled: true, BindLocal: bindLocal,
+		CreatedAt: time.Now().UTC(),
 	}
 	if err := h.Store.CreateService(r.Context(), svc); err != nil {
 		if store.IsUniqueViolation(err) {
@@ -174,7 +184,7 @@ func (h *Handler) HandleAdminCreateService(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	h.Auditor.Write(r.Context(), api.AdminActor(r), api.ActionServiceAdd, svc.ID,
-		map[string]any{"on_behalf_of": svc.DeviceID, "name": svc.Name, "public_port": svc.PublicPort})
+		map[string]any{"on_behalf_of": svc.DeviceID, "name": svc.Name, "public_port": svc.PublicPort, "bind_local": svc.BindLocal})
 	api.WriteJSON(w, http.StatusCreated, api.ToServiceDTO(svc))
 }
 
@@ -369,12 +379,28 @@ func (h *Handler) HandleAdminDeviceItem(w http.ResponseWriter, r *http.Request) 
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 撤销三步走：
+	//   1) 删 device row（DB cascade 清 services + forwards）
+	//   2) chisel UserIndex 移除（运行中 session 立即失效）
+	//   3) SSH 账号 lock（authorized_keys 清空 + 强断 ssh -L 跳板）+ 标 ssh_locked_at，
+	//      cron 7 天后真 userdel -r。
+	// 历史教训：之前只做 1 + 2，攻击者拿到 oml-* 账号的 ssh key 后仍能 forward 任意端口。
+	if err := h.Store.MarkDeviceSSHLocked(r.Context(), id, time.Now()); err != nil && !errors.Is(err, store.ErrNotFound) {
+		h.Logger.Warn("标记 device 锁定失败（继续 revoke 流程）", "device", id, "err", err)
+	}
 	if err := h.Store.DeleteDevice(r.Context(), id); err != nil {
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// 运行中同步撤销 chisel session 认证；新连接立即被拒，已建立的 session 在下一次心跳/拨号失败时断开。
 	h.Tunnel.RemoveDevice(id)
+	if h.SSHAcct != nil {
+		if err := h.SSHAcct.Lock(r.Context(), id); err != nil {
+			// SSH lock 失败不阻断 revoke——但要警告 + audit 留痕
+			h.Logger.Warn("SSH 账号 lock 失败", "device", id, "err", err)
+			h.Auditor.Write(r.Context(), api.AdminActor(r), api.ActionDeviceRevoke, id,
+				map[string]any{"ssh_lock_err": err.Error()})
+		}
+	}
 	h.Auditor.Write(r.Context(), api.AdminActor(r), api.ActionDeviceRevoke, id, nil)
 	h.Logger.Info("admin 撤销 device", "device", id)
 	w.WriteHeader(http.StatusNoContent)

@@ -24,6 +24,10 @@ type IssueTokenResponse struct {
 type EnrollDeviceRequest struct {
 	Token      string `json:"token"`
 	DeviceName string `json:"device_name"`
+	// SSHPubkey: 客户端在 enroll 前自动生成的 ed25519 公钥（OpenSSH 单行格式）。
+	// server 用它在 VPS 上建受限 oml-<id8> 账号 + 写 authorized_keys。
+	// 见 docs/security-via-ssh-tunnel.md。空值会被 server 拒绝（强制要求）。
+	SSHPubkey string `json:"ssh_pubkey"`
 }
 
 type EnrollDeviceResponse struct {
@@ -32,6 +36,11 @@ type EnrollDeviceResponse struct {
 	TunnelSecret      string `json:"tunnel_secret"`      // 明文，仅返回一次
 	ServerFingerprint string `json:"server_fingerprint"` // chisel server SSH 指纹
 	ChiselAddr        string `json:"chisel_addr"`        // 客户端 daemon 应连接的 chisel 入口，例如 "vps.example.com:8443"
+	// SSH 跳板信息：客户端用 `ssh -i <priv> SSHUsername@SSHHost -p SSHPort` 建端口转发。
+	// 例：ssh -L 13389:127.0.0.1:40000 oml-9871b2b5@vps.example.com -p 22
+	SSHUsername string `json:"ssh_username"`
+	SSHHost     string `json:"ssh_host"`
+	SSHPort     int    `json:"ssh_port"`
 }
 
 // ---------------- Service ----------------
@@ -40,6 +49,10 @@ type AddServiceRequest struct {
 	Name      string `json:"name"`
 	Protocol  string `json:"protocol"`   // tcp / udp
 	LocalAddr string `json:"local_addr"` // 例如 "127.0.0.1:22"
+	// BindLocal: chisel R-listener bind 在 VPS 127.0.0.1（true，默认安全）vs 0.0.0.0（false，公网，高危）。
+	// 历史教训：早期默认 0.0.0.0 把 RDP 暴露公网导致勒索。新 service 一律默认 true。
+	// 字段省略时按 server 端默认（true）。
+	BindLocal *bool `json:"bind_local,omitempty"`
 }
 
 type ServiceDTO struct {
@@ -50,6 +63,7 @@ type ServiceDTO struct {
 	LocalAddr  string    `json:"local_addr"`
 	PublicPort int       `json:"public_port"`
 	Enabled    bool      `json:"enabled"`
+	BindLocal  bool      `json:"bind_local"`
 	CreatedAt  time.Time `json:"created_at"`
 }
 
@@ -74,6 +88,9 @@ type RemoteEntry struct {
 	PublicPort int    `json:"public_port"`
 	LocalAddr  string `json:"local_addr"`
 	Protocol   string `json:"protocol"`
+	// BindLocal: chisel R-listener 在 VPS 上 bind 127.0.0.1 (true=安全默认) vs 0.0.0.0 (false=公网)。
+	// daemon 透传 server 的决定到 chisel client R-spec。
+	BindLocal bool `json:"bind_local"`
 }
 
 // LocalEntry 描述本机要起的 L: forward listener。
@@ -146,6 +163,10 @@ type AdminDeviceDTO struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	ServicesCount int        `json:"services_count"`
 	ForwardsCount int        `json:"forwards_count"`
+	// SSHUsername: VPS 上为该 device 创建的受限账号名（oml-<id8>）。
+	// 用户用此账号 + 客户端 data_dir 里的私钥做 ssh -L 跳板。
+	SSHUsername  string     `json:"ssh_username,omitempty"`
+	SSHLockedAt  *time.Time `json:"ssh_locked_at,omitempty"` // 撤销时间；非 nil 表示账号锁定，cron 7 天后真删
 }
 
 type AdminServiceDTO struct {
@@ -157,6 +178,7 @@ type AdminServiceDTO struct {
 	LocalAddr  string    `json:"local_addr"`
 	PublicPort int       `json:"public_port"`
 	Enabled    bool      `json:"enabled"`
+	BindLocal  bool      `json:"bind_local"`
 	CreatedAt  time.Time `json:"created_at"`
 	// A1' 链路健康：最近一次 server-side TCP dial 探测结果。
 	// LastProbeAt 为 nil → 从未探测过；OK=false → 最近探测失败。
@@ -198,6 +220,8 @@ type AdminAddServiceRequest struct {
 	Name      string `json:"name"`
 	Protocol  string `json:"protocol"`
 	LocalAddr string `json:"local_addr"`
+	// BindLocal 默认 true。null/缺失等同 true（安全默认）。
+	BindLocal *bool `json:"bind_local,omitempty"`
 }
 
 type AdminAddForwardRequest struct {

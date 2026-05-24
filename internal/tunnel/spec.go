@@ -8,9 +8,13 @@ import (
 
 // Remote 描述一条 reverse forward 规则：服务端公网端口 → 客户端本地地址。
 type Remote struct {
-	PublicPort int    // VPS 上对外监听的公网端口
+	PublicPort int    // VPS 上对外监听的端口（bind 地址由 BindLocal 决定）
 	LocalAddr  string // 客户端本机目标地址，例如 "127.0.0.1:22"
 	Protocol   string // "tcp" 或 "udp"
+	// BindLocal 控制 chisel R-listener 在 VPS 上 bind 0.0.0.0 还是 127.0.0.1。
+	// true（默认安全）→ 127.0.0.1，公网扫不到，要 ssh -L 跳板才能访问。
+	// false → 0.0.0.0，全互联网可达（历史教训：mini-pc 的 RDP 这么开就被勒索了）。
+	BindLocal bool
 }
 
 // Local 描述一条 local forward 规则：客户端本机端口 → server 上的目标端口（通过 chisel session 转发）。
@@ -65,9 +69,16 @@ func (r Remote) Validate() error {
 }
 
 // ToChiselSpec 把 Remote 编码成 chisel client 的 R: spec 字符串。
-// 例如 R:0.0.0.0:40001:127.0.0.1:22 或 ...:.../udp。
+// 例如 R:127.0.0.1:40001:127.0.0.1:22（仅本机）或 R:0.0.0.0:40001:127.0.0.1:22（公网，高危）。
+//
+// bind 地址由 server 在 BootstrapResponse.Remotes[i].BindLocal 控制——daemon 只是
+// 透传 server 的决定。server 端写库时强制 bind_local=true 即可全局封堵公网。
 func (r Remote) ToChiselSpec() string {
-	spec := fmt.Sprintf("R:0.0.0.0:%d:%s", r.PublicPort, r.LocalAddr)
+	bind := "0.0.0.0"
+	if r.BindLocal {
+		bind = "127.0.0.1"
+	}
+	spec := fmt.Sprintf("R:%s:%d:%s", bind, r.PublicPort, r.LocalAddr)
 	if strings.EqualFold(r.Protocol, "udp") {
 		spec += "/udp"
 	}

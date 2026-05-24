@@ -36,6 +36,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	devH := &device.Handler{
 		Store: s.store, Tunnel: s.tunnel, Ports: s.ports, Enroll: s.enroll,
 		Auditor: s.auditor, Logger: s.logger, ChiselAdvertiseAddr: s.chiselAdvertiseAddr,
+		SSHAcct: s.sshacct, SSHHost: s.sshHost, SSHPort: s.sshPort,
 	}
 
 	// 本机端点：生成 enrollment token
@@ -84,6 +85,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 		Auditor: s.auditor, Logger: s.logger,
 		LogBufFn:            func() *logging.RingBuffer { return s.logBuf },
 		ChiselAdvertiseAddr: s.chiselAdvertiseAddr, StartedAt: s.startedAt,
+		SSHAcct: s.sshacct,
 	}
 	adminMux := http.NewServeMux()
 	adminMux.HandleFunc("/api/admin/info", api.MethodOnly(http.MethodGet, adminH.HandleAdminInfo))
