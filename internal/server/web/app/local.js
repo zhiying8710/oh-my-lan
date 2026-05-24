@@ -7,6 +7,7 @@ import { els, fmtTime, inTauri, CTL_PATH_KEY, CTL_CONFIG_KEY } from './core.js';
 import { api } from './api.js';
 import { tauriCmd, getServerUrl, ensureLocalDevice, clearLocalDeviceCache } from './state.js';
 import { showAlert, showConfirm } from './alert.js';
+import { withLoading, setMsg } from './loading.js';
 
 function setDaemonBadge(running, pid) {
   if (running) {
@@ -211,27 +212,29 @@ async function waitDaemonRunning(timeoutMs = 5000, intervalMs = 200) {
 export async function enableAutostart() {
   const ctlPath = els.ctlPathInput.value.trim();
   const configPath = els.ctlConfigInput.value.trim();
-  els.autostartEnableBtn.disabled = true;
   els.autostartDisableBtn.disabled = true;
-  els.autostartMsg.textContent = '正在清理已有 daemon 进程…';
   try {
-    await tauriCmd('daemon_kill_all', { ctlPath, configPath });
+    await withLoading(els.autostartEnableBtn, els.autostartMsg,
+      '正在配置开机自启（清理旧 daemon → 写 unit → 等待启动，约 5-8 秒）…',
+      async () => {
+        try {
+          await tauriCmd('daemon_kill_all', { ctlPath, configPath });
+        } catch (e) {
+          console.warn('开启自启前清理 daemon 失败:', e);
+        }
+        await tauriCmd('autostart_enable', { ctlPath, configPath });
+        // launchctl load / systemctl start --now 异步——daemon 进程刚被排队 spawn，
+        // pidfile 还没写。轮询等待至多 5s 让它真正起来。
+        await waitDaemonRunning(5000, 200);
+      }
+    );
+    setMsg(els.autostartMsg, '✓ 开机自启已开启');
   } catch (e) {
-    console.warn('开启自启前清理 daemon 失败:', e);
-  }
-  els.autostartMsg.textContent = '正在配置自启…';
-  try {
-    await tauriCmd('autostart_enable', { ctlPath, configPath });
-  } catch (e) {
+    setMsg(els.autostartMsg, '');
     await showAlert(String(e), { title: '开启自启失败', kind: 'error' });
+  } finally {
     await refreshLocalTab();
-    return;
   }
-  // launchctl load / systemctl start --now 都是异步的——返回时 daemon 进程刚被排队 spawn，
-  // pidfile 还没写。轮询等待至多 5s 让它真正起来，否则 UI 会瞬间显示"已停止"误导用户。
-  els.autostartMsg.textContent = '正在等待 daemon 启动…';
-  await waitDaemonRunning(5000, 200);
-  await refreshLocalTab();
 }
 
 export async function disableAutostart() {
@@ -241,35 +244,32 @@ export async function disableAutostart() {
   );
   if (!ok) return;
   els.autostartEnableBtn.disabled = true;
-  els.autostartDisableBtn.disabled = true;
-  els.autostartMsg.textContent = '正在关闭自启…';
   const ctlPath = els.ctlPathInput.value.trim();
   const configPath = els.ctlConfigInput.value.trim();
   // 严格按"关闭 unit → 杀 pidfile 进程 → ps-grep 兜底杀孤儿"三步执行，每步错误都显示给用户。
   // 历史教训：早期版本静默 catch daemon_stop，结果有孤儿进程没被杀；UI 显示已停止但 ps 还能看到。
   try {
-    await tauriCmd('autostart_disable');
+    await withLoading(els.autostartDisableBtn, els.autostartMsg,
+      '正在关闭自启（卸 unit → 停 daemon → 杀孤儿）…', async () => {
+        await tauriCmd('autostart_disable');
+        try {
+          await tauriCmd('daemon_stop', { ctlPath, configPath });
+        } catch (e) {
+          // daemon_stop 失败不阻断流程；后面 kill_all 兜底
+          console.warn('daemon_stop 失败:', e);
+        }
+        await tauriCmd('daemon_kill_all', { ctlPath, configPath });
+        // 等一拍让 SIGTERM/SIGKILL 完成
+        await new Promise(r => setTimeout(r, 500));
+      }
+    );
+    setMsg(els.autostartMsg, '✓ 已关闭自启');
   } catch (e) {
-    await showAlert(String(e), { title: '关闭自启 unit 失败', kind: 'error' });
+    setMsg(els.autostartMsg, '');
+    await showAlert(String(e), { title: '关闭自启失败', kind: 'error' });
+  } finally {
     await refreshLocalTab();
-    return;
   }
-  try {
-    await tauriCmd('daemon_stop', { ctlPath, configPath });
-  } catch (e) {
-    // daemon_stop 失败不阻断流程，但要提示用户；后面 kill_all 也会兜底
-    console.warn('daemon_stop 失败:', e);
-  }
-  // 兜底：扫描所有匹配 config 的 omlctl daemon 进程并 SIGTERM
-  try {
-    const msg = await tauriCmd('daemon_kill_all', { ctlPath, configPath });
-    els.autostartMsg.textContent = msg || '已关闭自启';
-  } catch (e) {
-    await showAlert(String(e), { title: '清理孤儿进程失败', kind: 'error' });
-  }
-  // 等一拍再 refresh，让 SIGTERM/SIGKILL 完成
-  await new Promise(r => setTimeout(r, 500));
-  await refreshLocalTab();
 }
 
 // 注册并直接启动 daemon。出错时把 Rust 回传的 enroll stderr 摆出来。
@@ -281,28 +281,31 @@ export async function submitEnroll(ev) {
   const deviceName = els.enrollNameInput.value.trim();
   const token = els.enrollTokenInput.value.trim();
   if (!serverUrl) {
-    els.enrollMsg.textContent = '请先在登录页配置服务器 URL';
+    setMsg(els.enrollMsg, '请先在登录页配置服务器 URL');
     return;
   }
   if (!deviceName || !token) {
-    els.enrollMsg.textContent = '设备名和 token 都必填';
+    setMsg(els.enrollMsg, '设备名和 token 都必填');
     return;
   }
-  els.enrollMsg.textContent = '注册中…';
+  // withLoading 让"注册并启动 daemon"按钮变 spinner + 禁用 + 消息区也带 spinner，
+  // 让 enroll 这条慢链路（联系 server + server 调 sudo useradd + 启动 daemon）有可见反馈。
   try {
-    const out = await tauriCmd('daemon_enroll', {
-      ctlPath, configPath, serverUrl, token, deviceName,
+    await withLoading(els.enrollSubmitBtn, els.enrollMsg, '注册中（可能需要 5-10 秒：服务端在 VPS 上建受限 SSH 账号）…', async () => {
+      const out = await tauriCmd('daemon_enroll', {
+        ctlPath, configPath, serverUrl, token, deviceName,
+      });
+      console.log('[enroll]', out);
     });
-    els.enrollMsg.textContent = '注册成功，正在启动 daemon…';
     // enroll 成功后清空 token 框（一次性凭据，避免历史记录残留）
     els.enrollTokenInput.value = '';
-    console.log('[enroll]', out);
-    // 切到 daemon 卡片并启动
+    setMsg(els.enrollMsg, '注册成功，正在启动 daemon…');
+    // 切到 daemon 卡片并启动（startDaemon 自己也带 withLoading）
     showDaemonCard();
     await refreshDaemonStatus();
     await startDaemon();
   } catch (e) {
-    els.enrollMsg.textContent = String(e);
+    setMsg(els.enrollMsg, '注册失败: ' + String(e));
   }
 }
 
@@ -312,23 +315,24 @@ export async function startDaemon() {
   // 持久化用户当前输入（即便是空字符串也保存，表示"明确选了默认"）
   localStorage.setItem(CTL_PATH_KEY, ctlPath);
   localStorage.setItem(CTL_CONFIG_KEY, configPath);
-  // 启动期间禁用按钮，避免并发触发
-  els.daemonStartBtn.disabled = true;
+  // 启动期间用 withLoading 给 startBtn 加 spinner + 禁用；stopBtn 单独禁用
   els.daemonStopBtn.disabled = true;
-  els.daemonMsg.textContent = '启动中（含 500ms grace-check）…';
+  let pid;
   try {
-    const pid = await tauriCmd('daemon_start', { ctlPath, configPath });
+    pid = await withLoading(els.daemonStartBtn, els.daemonMsg, '启动中（含 500ms grace-check）…', () =>
+      tauriCmd('daemon_start', { ctlPath, configPath })
+    );
     setDaemonBadge(true, pid);
     const notes = [
       ctlPath ? '' : '内置 omlctl',
       configPath ? '' : '默认 config',
     ].filter(Boolean).join(' + ');
-    els.daemonMsg.textContent = `已启动 pid=${pid}${notes ? ' (' + notes + ')' : ''}`;
+    setMsg(els.daemonMsg, `已启动 pid=${pid}${notes ? ' (' + notes + ')' : ''}`);
     // 即便 grace-check 通过，慢死的进程也可能 1~2s 后才 segfault；再补一次延迟刷新
     setTimeout(() => { refreshDaemonStatus().catch(() => {}); }, 1500);
   } catch (e) {
     // Rust 已经把 stderr 尾部拼进 e；多行错误用 <pre> 风格的换行显示
-    els.daemonMsg.textContent = '启动失败：' + e;
+    setMsg(els.daemonMsg, '启动失败：' + e);
     setDaemonBadge(false);
   }
 }

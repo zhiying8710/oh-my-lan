@@ -100,6 +100,48 @@ button.btn-link:disabled {
   border-color: var(--border);
   text-decoration: none;
 }
+/* btn-loading: 按钮处于异步操作中。保留原文字 + 前面塞一个旋转的小圆环 spinner。
+   配合 withLoading() helper（见 app/loading.js）使用：自动加 .btn-loading + disabled，
+   操作完恢复。视觉上让用户立刻知道"点出去了，在跑，别再点"。
+
+   设计：::before 伪元素 1em 圆环 + currentColor border-top 单边色 + spin keyframe 0.6s 转一圈。
+   不依赖 SVG/字体图标，纯 CSS 几行。 */
+button.btn-loading {
+  position: relative;
+  pointer-events: none;
+  /* 文字稍微淡一点让 spinner 更突出 */
+  opacity: 0.85;
+}
+button.btn-loading::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.5em;
+  vertical-align: -0.15em;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: oml-spin 0.6s linear infinite;
+}
+@keyframes oml-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 给消息文字加 .loading 时同样的 spinner 提示——daemonMsg / enrollMsg 用 */
+.muted.loading::before {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.4em;
+  vertical-align: -0.1em;
+  border: 1.5px solid var(--muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: oml-spin 0.7s linear infinite;
+}
+
 button:disabled:hover,
 button[disabled]:hover {
   background: var(--bg);

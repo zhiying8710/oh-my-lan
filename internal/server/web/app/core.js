@@ -87,6 +87,7 @@ export const els = {
   enrollNameInput: document.getElementById('enroll-name-input'),
   enrollTokenInput: document.getElementById('enroll-token-input'),
   enrollGenerateTokenBtn: document.getElementById('enroll-generate-token-btn'),
+  enrollSubmitBtn: document.getElementById('enroll-submit-btn'),
   enrollMsg: document.getElementById('enroll-msg'),
   autostartState: document.getElementById('autostart-state'),
   autostartEnableBtn: document.getElementById('autostart-enable-btn'),
