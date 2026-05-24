@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Manager 持有 VPS 端账号管理所需的全部配置。
@@ -263,9 +264,47 @@ func (m *Manager) userExists(ctx context.Context, user string) (bool, error) {
 	return false, nil
 }
 
+// lockBusyRE 匹配 shadow-utils 的"另一个进程持有 /etc/passwd 锁"错信息。
+// 历史教训：阿里云 ECS 的 AliYunDun 安全 agent 周期扫账号，瞬时持锁 100ms-1s；
+// useradd 自身只重试很短时间就放弃报这个。我们自己再 retry 5 次，每次 backoff 1s，
+// 把瞬态锁竞争吸收掉。
+var lockBusyRE = regexp.MustCompile(`(?i)cannot lock (/etc/)?passwd|another (process |program )?holds|try again later`)
+
 // run 执行外部命令；UseSudo 时套 sudo -n（non-interactive，密码必须配 NOPASSWD）。
 // MockExec 优先，让单测注入。
+// 自动 retry：碰到 /etc/passwd lock busy 时重试，max 5 次共 ~5s。
 func (m *Manager) run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	const maxRetries = 5
+	var (
+		out []byte
+		err error
+	)
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// 1s backoff，AliYunDun 周期扫常在 1-3s 内放锁
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Second):
+			}
+		}
+		out, err = m.runOnce(ctx, name, args...)
+		if err == nil {
+			return out, nil
+		}
+		if !lockBusyRE.Match(out) {
+			return out, err
+		}
+		// 仅在仍是 user-management 命令（useradd/usermod/userdel）时 retry
+		// chown/pkill 等不操作 /etc/passwd 锁的命令不会撞这个错，本逻辑无副作用
+		m.Logger.Warn("user db locked, will retry",
+			"cmd", name, "attempt", attempt+1, "output", string(out))
+	}
+	return out, err
+}
+
+// runOnce 真正执行单次 exec。
+func (m *Manager) runOnce(ctx context.Context, name string, args ...string) ([]byte, error) {
 	if m.MockExec != nil {
 		return m.MockExec(name, args...)
 	}
