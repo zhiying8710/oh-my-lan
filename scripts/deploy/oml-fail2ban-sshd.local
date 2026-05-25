@@ -1,0 +1,35 @@
+# /etc/fail2ban/jail.d/oml-sshd.local
+#
+# oml 部署的 sshd 暴力暴破防御。背景：
+#   - sshd 在公网 22 端口监听 + root 密码登录开着（emergency 用），暴破面真实存在
+#   - oml-* 受限账号 key-only 无暴破面，但 root + 其它账号有
+#   - 5/24 之后 fail2ban 装上，10 分钟内 5 次失败 → ban 1 小时（递增到 1 天封顶）
+#
+# 部署：
+#   cp scripts/deploy/oml-fail2ban-sshd.local /etc/fail2ban/jail.d/oml-sshd.local
+#   fail2ban-client reload sshd
+#
+# 验证：
+#   fail2ban-client status sshd
+#   fail2ban-client get sshd ignoreip
+#
+# 误 ban 自己时：
+#   fail2ban-client set sshd unbanip <你的 IP>
+
+[sshd]
+enabled = true
+mode = aggressive
+port = 22
+maxretry = 5
+findtime = 10m
+bantime = 1h
+bantime.increment = true
+bantime.factor = 2
+bantime.maxtime = 1d
+
+# ignoreip：精确白名单——仅放行授权运维 IP + VPS 自身阿里云内网回路。
+#   47.94.91.142   = 授权运维 host（你指定）
+#   172.17.172.231 = 该 VPS 阿里云内网地址（防自封内网回环 / cron 自查）
+# 早期版本曾用粤电信 /22 /24 大段（59.33.168.0/24 等），后收紧——动态拨号 IP 段
+# 放行不安全。误封自己用上面的 unbanip 命令救场。
+ignoreip = 127.0.0.1/8 ::1 47.94.91.142 172.17.172.231
