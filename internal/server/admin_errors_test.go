@@ -92,4 +92,39 @@ func TestAdminDeviceItem_NotFound(t *testing.T) {
 	ts, srv := newTestServer(t)
 	bearer := newAdminBearer(t, srv)
 	doRaw(t, ts, http.MethodPost, "/api/admin/devices/missing/revoke", bearer, "", http.StatusNotFound)
+	doRaw(t, ts, http.MethodPost, "/api/admin/devices/missing/kick", bearer, "", http.StatusNotFound)
+}
+
+// kick：device 存在 → 204；之后 device 在 chisel UserIndex 仍可用（这是与 revoke 的关键区别——
+// 仅 1s 软重置，不删数据）。
+func TestAdminDeviceKick(t *testing.T) {
+	ts, srv := newTestServer(t)
+	bearer := newAdminBearer(t, srv)
+	tok := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
+	dev := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
+		toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "kicktest", SSHPubkey: testSSHPubkey}), http.StatusCreated)
+
+	if err := srv.tunnel.AddDevice(dev.DeviceID, dev.TunnelSecret); err != nil {
+		t.Fatal(err)
+	}
+	doRaw(t, ts, http.MethodPost, "/api/admin/devices/"+dev.DeviceID+"/kick", bearer, "", http.StatusNoContent)
+
+	// 走完 kick 后 device 仍在 DB——bootstrap 仍可用（注：device.DeleteDevice 没被调）
+	bearerDev := "Bearer " + dev.DeviceID + "." + dev.TunnelSecret
+	doRaw(t, ts, http.MethodGet, "/api/devices/me/bootstrap", bearerDev, "", http.StatusOK)
+
+	// audit 应有 device.kick 条目
+	a := mustDoJSON[proto.AdminListAuditResponse](t, ts, http.MethodGet, "/api/admin/audit?limit=20", bearer, "", http.StatusOK)
+	kickSeen := false
+	for _, e := range a.Entries {
+		if e.Action == "device.kick" && e.Target == dev.DeviceID {
+			kickSeen = true
+		}
+	}
+	if !kickSeen {
+		t.Errorf("audit 中应有 device.kick 条目")
+	}
+
+	// 仅 GET/PUT/DELETE 等非 POST 应 405
+	doRaw(t, ts, http.MethodGet, "/api/admin/devices/"+dev.DeviceID+"/kick", bearer, "", http.StatusMethodNotAllowed)
 }

@@ -222,6 +222,7 @@ func AuthedUserID(ctx context.Context) string {
 const (
 	ActionDeviceEnroll     = "device.enroll"
 	ActionDeviceRevoke     = "device.revoke"
+	ActionDeviceKick       = "device.kick"
 	ActionServiceAdd       = "service.add"
 	ActionServiceDelete    = "service.delete"
 	ActionServiceEnable    = "service.enable"

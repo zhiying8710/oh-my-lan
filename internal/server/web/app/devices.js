@@ -21,6 +21,7 @@ export async function loadDevices() {
       <td>${fmtTime(d.created_at)}</td>
       <td class="mono">${escapeHTML(d.id)}</td>
       <td>
+        <button class="row-btn" data-action="kick-device" data-id="${escapeHTML(d.id)}" data-name="${escapeHTML(d.name)}" title="软重置 chisel session：UserIndex 锁出 1s 后回加。已建 TCP 不会立刻断（chisel 无 force-close），但 10s × 3 = 30s 内 keep-alive 探测会让真的 stale session 自然 RST 重连。">踢出</button>
         <button class="row-btn btn-danger" data-action="revoke-device" data-id="${escapeHTML(d.id)}" data-name="${escapeHTML(d.name)}">撤销</button>
       </td>
     </tr>

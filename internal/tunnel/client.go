@@ -49,7 +49,12 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 
 	keepAlive := cfg.KeepAlive
 	if keepAlive == 0 {
-		keepAlive = 25 * time.Second
+		// 10s × 3 = 30s 探测窗口；chisel client 内置 3 次失败才断会话。
+		// 历史教训：默认 25s × 3 = 75s 在"客户端断网 3 分钟后回来"场景常让 daemon
+		// 已经重连但 VPS 还认为旧 session 活着，新连接 mux 卡死。
+		// 10s ping 间隔在百毫秒级 NAT 都能跑（NAT 表 TTL 通常 60s+），代价仅是
+		// 多发几个空 ping 包，完全可接受。
+		keepAlive = 10 * time.Second
 	}
 
 	cli, err := chclient.NewClient(&chclient.Config{

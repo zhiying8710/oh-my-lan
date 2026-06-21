@@ -47,6 +47,7 @@ export async function handleRowAction(action, data) {
 
   const map = {
     'revoke-device':   { method: 'POST',   path: `/api/admin/devices/${data.id}/revoke` },
+    'kick-device':     { method: 'POST',   path: `/api/admin/devices/${data.id}/kick` },
     'delete-service':  { method: 'DELETE', path: `/api/admin/services/${data.id}` },
     'enable-service':  { method: 'POST',   path: `/api/admin/services/${data.id}/enable` },
     'disable-service': { method: 'POST',   path: `/api/admin/services/${data.id}/disable` },

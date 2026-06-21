@@ -358,20 +358,25 @@ func (h *Handler) HandleAdminForwardItem(w http.ResponseWriter, r *http.Request)
 func (h *Handler) HandleAdminDeviceItem(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/api/admin/devices/")
 	parts := strings.SplitN(rest, "/", 2)
-	if len(parts) != 2 || parts[1] != "revoke" {
+	if len(parts) != 2 {
 		api.WriteError(w, http.StatusNotFound, "未知 admin device 路径")
+		return
+	}
+	id, action := parts[0], parts[1]
+	if action != "revoke" && action != "kick" {
+		api.WriteError(w, http.StatusNotFound, "未知 admin device 动作: "+action)
 		return
 	}
 	if r.Method != http.MethodPost {
 		api.WriteError(w, http.StatusMethodNotAllowed, "仅支持 POST")
 		return
 	}
-	id := parts[0]
 	if id == "" {
 		api.WriteError(w, http.StatusBadRequest, "缺少 device id")
 		return
 	}
-	if _, err := h.Store.GetDeviceByID(r.Context(), id); err != nil {
+	dev, err := h.Store.GetDeviceByID(r.Context(), id)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			api.WriteError(w, http.StatusNotFound, "device 不存在")
 			return
@@ -379,6 +384,28 @@ func (h *Handler) HandleAdminDeviceItem(w http.ResponseWriter, r *http.Request) 
 		api.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// kick：软重置——锁出 chisel UserIndex 1s 后再加回，让 daemon 重连。
+	// 注意：chisel 在 handshake 时检查 user，已建立 session 中途不再校验，所以"踢出"
+	// 并不能强行断 TCP。但 daemon 端 keep-alive 失败窗口（10s × 3 = 30s）内任何
+	// 真的卡死的 stale session 都会自然 RST 并 reconnect，那时 user index 已恢复。
+	// 适用场景：mac 断网恢复后 mac-side 仍能连但 windows-side R-listener mux 卡死，
+	// 这一秒锁让 windows 侧重新握手新 sub-stream。
+	if action == "kick" {
+		h.Tunnel.RemoveDevice(id)
+		time.Sleep(time.Second)
+		if err := h.Tunnel.AddDevice(dev.ID, dev.TunnelSecret); err != nil {
+			h.Logger.Warn("kick 后重新注入 chisel user 失败", "device", id, "err", err)
+			api.WriteError(w, http.StatusInternalServerError, "重新注入 chisel user 失败: "+err.Error())
+			return
+		}
+		h.Auditor.Write(r.Context(), api.AdminActor(r), api.ActionDeviceKick, id, nil)
+		h.Logger.Info("admin kick device session", "device", id, "name", dev.Name)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// 下面是 revoke 路径——原逻辑不变
 	// 撤销三步走：
 	//   1) 删 device row（DB cascade 清 services + forwards）
 	//   2) chisel UserIndex 移除（运行中 session 立即失效）
