@@ -128,3 +128,36 @@ func TestAdminDeviceKick(t *testing.T) {
 	// 仅 GET/PUT/DELETE 等非 POST 应 405
 	doRaw(t, ts, http.MethodGet, "/api/admin/devices/"+dev.DeviceID+"/kick", bearer, "", http.StatusMethodNotAllowed)
 }
+
+// 并发 kick + revoke 同 device 不能在 chisel UserIndex 留 phantom user。
+// 历史 bug：kick 中间 sleep 1s 期间 revoke 进入，kick 醒来后 AddDevice，DB 里
+// 已无该 device 但 chisel 仍认这个 user → 攻击者用旧 tunnel_secret 跑 chisel
+// L-spec 借 VPS 做内网跳板。修：kick 改原子 Remove+Add 不再 sleep。
+func TestAdminDeviceKick_RaceWithRevoke(t *testing.T) {
+	ts, srv := newTestServer(t)
+	bearer := newAdminBearer(t, srv)
+
+	for i := 0; i < 20; i++ {
+		tok := mustDoJSON[proto.IssueTokenResponse](t, ts, http.MethodPost, "/api/enroll/tokens", "", "", http.StatusCreated)
+		dev := mustDoJSON[proto.EnrollDeviceResponse](t, ts, http.MethodPost, "/api/devices/enroll", "",
+			toJSON(t, proto.EnrollDeviceRequest{Token: tok.Token, DeviceName: "race", SSHPubkey: testSSHPubkey}), http.StatusCreated)
+		_ = srv.tunnel.AddDevice(dev.DeviceID, dev.TunnelSecret)
+
+		// 同时发 kick + revoke。两者顺序无所谓——最终态必须是 chisel UserIndex 不含该 user。
+		done := make(chan struct{}, 2)
+		go func() {
+			doRawAny(t, ts, http.MethodPost, "/api/admin/devices/"+dev.DeviceID+"/kick", bearer, "")
+			done <- struct{}{}
+		}()
+		go func() {
+			doRawAny(t, ts, http.MethodPost, "/api/admin/devices/"+dev.DeviceID+"/revoke", bearer, "")
+			done <- struct{}{}
+		}()
+		<-done
+		<-done
+
+		if srv.tunnel.HasDevice(dev.DeviceID) {
+			t.Fatalf("iter %d: revoke 完成后 chisel UserIndex 不应含 %s（phantom user）", i, dev.DeviceID)
+		}
+	}
+}

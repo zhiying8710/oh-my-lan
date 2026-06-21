@@ -669,6 +669,28 @@ func toJSON(t *testing.T, v any) string {
 	return string(b)
 }
 
+// doRawAny 类似 doRaw 但不断言 status code——用于并发场景，两个并发请求里某一个
+// 注定会 404（race-loser），调用者只关心最终态而不关心哪条请求赢了。
+func doRawAny(t *testing.T, ts *httptest.Server, method, path, bearer, body string) {
+	t.Helper()
+	req, err := http.NewRequest(method, ts.URL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", bearer)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+}
+
 func doRaw(t *testing.T, ts *httptest.Server, method, path, bearer, body string, wantStatus int) string {
 	t.Helper()
 	req, err := http.NewRequest(method, ts.URL+path, strings.NewReader(body))

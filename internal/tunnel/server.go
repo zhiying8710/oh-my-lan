@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 
 	chserver "github.com/jpillora/chisel/server"
 )
@@ -17,9 +18,15 @@ type ServerConfig struct {
 }
 
 // Server 包装 chisel server，提供 Start/Close 和动态用户管理。
+//
+// devices 是 chisel UserIndex 的并行可见性 mirror——chisel 自家 UserIndex 不暴露
+// Has/Get 接口，我们要支持 "kick 完后查 phantom user 残留" 这类断言（admin race 测试）
+// 和 future admin "查活跃 chisel session" UI，必须自己维持一份集合。
 type Server struct {
-	cfg ServerConfig
-	srv *chserver.Server
+	cfg     ServerConfig
+	srv     *chserver.Server
+	mu      sync.Mutex
+	devices map[string]struct{}
 }
 
 func NewServer(cfg ServerConfig) (*Server, error) {
@@ -34,7 +41,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if cfg.Verbose {
 		srv.Debug = true
 	}
-	return &Server{cfg: cfg, srv: srv}, nil
+	return &Server{cfg: cfg, srv: srv, devices: map[string]struct{}{}}, nil
 }
 
 // Start 在后台启动 chisel server，监听 cfg.ListenAddr。
@@ -60,12 +67,30 @@ func (s *Server) Fingerprint() string { return s.srv.GetFingerprint() }
 // addrs 控制该 device 允许 R: spec 的地址正则；个人使用默认放开。
 func (s *Server) AddDevice(deviceID, secret string) error {
 	// chisel 的 ACL 是正则，".+" 表示任意。
-	return s.srv.AddUser(deviceID, secret, ".+")
+	if err := s.srv.AddUser(deviceID, secret, ".+"); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.devices[deviceID] = struct{}{}
+	s.mu.Unlock()
+	return nil
 }
 
 // RemoveDevice 撤销设备身份。
 func (s *Server) RemoveDevice(deviceID string) {
 	s.srv.DeleteUser(deviceID)
+	s.mu.Lock()
+	delete(s.devices, deviceID)
+	s.mu.Unlock()
+}
+
+// HasDevice 报告 device 是否在 chisel UserIndex（mirror 视图）。
+// 用于断言 / admin "活跃 chisel 用户" 列表；不能用来代替 chisel 内部的鉴权检查。
+func (s *Server) HasDevice(deviceID string) bool {
+	s.mu.Lock()
+	_, ok := s.devices[deviceID]
+	s.mu.Unlock()
+	return ok
 }
 
 func splitHostPort(addr string) (string, string, error) {

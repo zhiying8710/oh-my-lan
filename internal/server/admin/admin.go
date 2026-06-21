@@ -385,15 +385,19 @@ func (h *Handler) HandleAdminDeviceItem(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// kick：软重置——锁出 chisel UserIndex 1s 后再加回，让 daemon 重连。
-	// 注意：chisel 在 handshake 时检查 user，已建立 session 中途不再校验，所以"踢出"
-	// 并不能强行断 TCP。但 daemon 端 keep-alive 失败窗口（10s × 3 = 30s）内任何
-	// 真的卡死的 stale session 都会自然 RST 并 reconnect，那时 user index 已恢复。
-	// 适用场景：mac 断网恢复后 mac-side 仍能连但 windows-side R-listener mux 卡死，
-	// 这一秒锁让 windows 侧重新握手新 sub-stream。
+	// kick：原子 RemoveDevice + AddDevice。
+	//
+	// 历史教训：上一版中间 sleep 1s 想"锁出 reconnect 窗口"，但 sleep 期间若并发
+	// revoke 同 device，会触发：A.kick(remove)→B.revoke(delete+remove)→A.kick(add)
+	// 留下 phantom chisel user。攻击者拿到旧 tunnel_secret 后用 chisel client 跑
+	// `L:127.0.0.1:53:127.0.0.1:53` 就能借 VPS 做内网 forward 跳板（bootstrap 401
+	// 不挡 chisel 端纯 L-spec 用法）。移除 sleep 让两次调用之间没有时间窗口可被抢占。
+	//
+	// 注意：chisel 在 handshake 时检查 user，已建立 session 中途不再校验，所以 kick
+	// 不能强行断 TCP——它本质上是 audit 留痕 + 极短窗口锁出新 reconnect 尝试。真正
+	// 治愈 stale session 靠的是 daemon 的 keep-alive 失败检测（10s × 3 = 30s）。
 	if action == "kick" {
 		h.Tunnel.RemoveDevice(id)
-		time.Sleep(time.Second)
 		if err := h.Tunnel.AddDevice(dev.ID, dev.TunnelSecret); err != nil {
 			h.Logger.Warn("kick 后重新注入 chisel user 失败", "device", id, "err", err)
 			api.WriteError(w, http.StatusInternalServerError, "重新注入 chisel user 失败: "+err.Error())
